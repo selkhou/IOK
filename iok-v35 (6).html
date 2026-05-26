@@ -1,0 +1,3255 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <meta name="theme-color" content="#FFFFFF"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="IOK"/>
+  <title>Instant Offer Konect</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+    html,body,#root{height:100%;background:#0C0D0F;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+    input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;}
+    ::-webkit-scrollbar{display:none;}
+    #splash-loader{position:fixed;inset:0;background:#FFFFFF;display:flex;align-items:center;justify-content:center;z-index:9999;transition:opacity 0.6s;}
+    .leaflet-container{background:#e8e0d8!important;}
+    /* Popups carte — restent dark pour lisibilité */
+    .iok-popup .leaflet-popup-content-wrapper{background:#1F1F1F;color:#FFFFFF;border:none;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.25);}
+    .iok-popup .leaflet-popup-tip{background:#1F1F1F;}
+    .iok-popup .leaflet-popup-content{margin:10px 14px;font-size:13px;line-height:1.5;}
+    .leaflet-control-zoom a{background:#FFFFFF!important;color:#1F1F1F!important;border:1px solid rgba(0,0,0,0.1)!important;box-shadow:0 2px 6px rgba(0,0,0,0.1)!important;}
+    .leaflet-control-attribution{font-size:9px;background:rgba(255,255,255,0.8)!important;color:#6B7280!important;}
+    /* Tokens client light */
+    .iok-client-screen{background:#F8F8F8;}
+    .iok-client-card{background:#FFFFFF;box-shadow:0 2px 12px rgba(0,0,0,0.08);border-radius:16px;}
+  </style>
+</head>
+<body>
+  <div id="splash-loader" style="background:#FFFFFF;display:flex;align-items:center;justify-content:center;">
+    <div style="width:80px;height:80px;border-radius:24px;background:linear-gradient(135deg,#FF5C3A,#FF8C42);display:flex;align-items:center;justify-content:center;font-size:38px;box-shadow:0 12px 40px rgba(255,92,58,0.4);">⚡</div>
+  </div>
+  <div id="root"></div>
+  <script>
+    var IOK_ERRORS = [];
+    window.onerror = function(msg, src, line, col, err) {
+      IOK_ERRORS.push({msg:msg, src:src, line:line, err:err?err.stack:""});
+      var el = document.getElementById("splash-loader");
+      if(el) {
+        el.style.opacity="1"; el.style.display="flex"; el.style.alignItems="flex-start"; el.style.overflowY="auto";
+        var srcShort = (src||"").split("/").pop();
+        var stack = err&&err.stack ? err.stack.substring(0,300) : "";
+        el.innerHTML = '<div style="padding:24px;width:100%;max-width:400px;">'
+          + '<div style="font-size:36px;text-align:center;margin-bottom:12px;">⚠️</div>'
+          + '<div style="color:#FF5C3A;font-size:15px;font-weight:700;margin-bottom:10px;text-align:center;">Erreur de chargement</div>'
+          + '<div style="background:#1C1F23;border:1px solid rgba(255,92,58,0.3);border-radius:10px;padding:12px;margin-bottom:10px;">'
+          + '<div style="color:#F7F8F9;font-size:12px;font-weight:600;margin-bottom:4px;">Message :</div>'
+          + '<div style="color:#9CA3AF;font-size:11px;word-break:break-all;line-height:1.5;">' + msg + '</div>'
+          + '</div>'
+          + (srcShort ? '<div style="background:#1C1F23;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px;margin-bottom:10px;">'
+          + '<div style="color:#F7F8F9;font-size:12px;font-weight:600;margin-bottom:4px;">Fichier · Ligne :</div>'
+          + '<div style="color:#9CA3AF;font-size:11px;">' + srcShort + ' · ligne ' + line + '</div>'
+          + '</div>' : '')
+          + (stack ? '<div style="background:#1C1F23;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px;margin-bottom:10px;">'
+          + '<div style="color:#F7F8F9;font-size:12px;font-weight:600;margin-bottom:4px;">Stack :</div>'
+          + '<div style="color:#6B7280;font-size:10px;word-break:break-all;line-height:1.5;white-space:pre-wrap;">' + stack + '</div>'
+          + '</div>' : '')
+          + '<div style="color:#6B7280;font-size:11px;text-align:center;">Copie ce message et envoie-le à IOK support</div>'
+          + '</div>';
+      }
+      return false;
+    };
+    window.addEventListener('unhandledrejection', function(e) {
+      window.onerror('Promise rejetée: ' + (e.reason||e), '', 0, 0, e.reason instanceof Error ? e.reason : null);
+    });
+  </script>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script>
+    // ════════════════════════════════════════════════
+    // CONFIGURATION SUPABASE
+    // Remplace SUPABASE_URL et SUPABASE_KEY ci-dessous
+    // ════════════════════════════════════════════════
+  var SUPABASE_URL = "https://ghwozyzlhcmuhneumasv.supabase.co";
+  var SUPABASE_KEY = "sb_publishable_YrvKfDbW6S4Ls0WQeamcHg_dkch_k0R";
+    window.SUPABASE_URL = SUPABASE_URL;
+    window.SUPABASE_KEY = SUPABASE_KEY;
+
+    try {
+      if (window.supabase && window.supabase.createClient) {
+        window.IOK_DB = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        console.log('✅ Supabase IOK_DB initialisé');
+      } else {
+        console.error('❌ window.supabase non disponible au chargement');
+      }
+    } catch(e) {
+      console.error('❌ Erreur init Supabase:', e.message);
+    }
+  </script>
+
+  <script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// Helper sécurisé pour accéder à Supabase
+function db() {
+  if (!window.IOK_DB) {
+    if (window.supabase && window.supabase.createClient && window.SUPABASE_URL) {
+      window.IOK_DB = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_KEY);
+    }
+  }
+  return window.IOK_DB;
+}
+
+/* ══ INTERNATIONALISATION (i18n) ════════════════════
+   TODO: Ajouter support FR / EN / ES / DE / IT
+   Implémenter avec un objet LANG[locale] et un contexte React
+   Activer après stabilisation des fonctions de base
+══════════════════════════════════════════════════ */
+
+/* ══ DESIGN TOKENS — Dark (restaurateur) ════════════ */
+const C = {
+  bg:"#0C0D0F", surface:"#15171A", card:"#1C1F23",
+  border:"rgba(255,255,255,0.07)",
+  accent:"#FF5C3A", accentSoft:"rgba(255,92,58,0.15)", accentGlow:"rgba(255,92,58,0.35)",
+  gold:"#F5A623", green:"#22C55E", greenSoft:"rgba(34,197,94,0.15)",
+  red:"#EF4444", text:"#F7F8F9", muted:"#6B7280", sub:"#9CA3AF",
+};
+
+/* ══ DESIGN TOKENS — Light (client, style Uber Eats) ═ */
+const CL = {
+  bg:"#F8F8F8", surface:"#FFFFFF", card:"#FFFFFF",
+  border:"rgba(0,0,0,0.08)",
+  accent:"#E8000C", accentSoft:"rgba(232,0,12,0.08)", accentGlow:"rgba(232,0,12,0.25)",
+  gold:"#F5A623", green:"#22C55E", greenSoft:"rgba(34,197,94,0.1)",
+  red:"#E8000C", text:"#1F1F1F", muted:"#6B7280", sub:"#9CA3AF",
+  shadow:"0 2px 12px rgba(0,0,0,0.08)", shadowMd:"0 4px 20px rgba(0,0,0,0.12)",
+};
+
+/* ══ VILLES ═════════════════════════════════════════ */
+const CITIES = [
+  {id:"annecy",   name:"Annecy",    lat:45.8992, lng:6.1294,  zoom:15},
+  {id:"paris",    name:"Paris",     lat:48.8566, lng:2.3522,  zoom:14},
+  {id:"lyon",     name:"Lyon",      lat:45.7640, lng:4.8357,  zoom:14},
+  {id:"bordeaux", name:"Bordeaux",  lat:44.8378, lng:-0.5792, zoom:14},
+  {id:"nice",     name:"Nice",      lat:43.7102, lng:7.2620,  zoom:14},
+  {id:"toulouse", name:"Toulouse",  lat:43.6047, lng:1.4442,  zoom:14},
+  {id:"grenoble", name:"Grenoble",  lat:45.1885, lng:5.7245,  zoom:14},
+  {id:"chambery", name:"Chambéry", lat:45.5646, lng:5.9178,  zoom:14},
+  {id:"marseille",name:"Marseille", lat:43.2965, lng:5.3698,  zoom:14},
+  {id:"nantes",   name:"Nantes",    lat:47.2184, lng:-1.5536, zoom:14},
+  {id:"strasbourg",name:"Strasbourg",lat:48.5734,lng:7.7521, zoom:14},
+  {id:"rennes",   name:"Rennes",    lat:48.1173, lng:-1.6778, zoom:14},
+  {id:"montpellier",name:"Montpellier",lat:43.6108,lng:3.8767,zoom:14},
+  {id:"lille",    name:"Lille",     lat:50.6292, lng:3.0573,  zoom:14},
+  {id:"geneve",   name:"Genève",    lat:46.2044, lng:6.1432,  zoom:14},
+];
+
+// Paramètres globaux — chargés depuis Supabase au démarrage
+// Valeurs par défaut (overridées par la base)
+window.IOK_PARAMS = {
+  test_mode: true,
+  duree_dispo_min: 30,
+  duree_resa_min: 30,
+  delai_arrivee_min: 5,
+  alerte_orange_min: 10,
+};
+const TEST_MODE = ()=> window.IOK_PARAMS.test_mode === true || window.IOK_PARAMS.test_mode === 'true';
+const MAX_WALK_DISTANCE_M = 2400;
+
+// Charge les paramètres depuis Supabase
+async function loadParams(){
+  try{
+    const {data} = await db().from('parametres').select('cle,valeur');
+    if(data) data.forEach(p=>{
+      if(p.cle==='test_mode') window.IOK_PARAMS.test_mode = p.valeur==='true';
+      if(p.cle==='duree_dispo_min') window.IOK_PARAMS.duree_dispo_min = parseInt(p.valeur)||30;
+      if(p.cle==='duree_resa_min') window.IOK_PARAMS.duree_resa_min = parseInt(p.valeur)||30;
+      if(p.cle==='delai_arrivee_min') window.IOK_PARAMS.delai_arrivee_min = parseInt(p.valeur)||5;
+      if(p.cle==='alerte_orange_min') window.IOK_PARAMS.alerte_orange_min = parseInt(p.valeur)||10;
+    });
+  }catch(e){ console.log('Params fallback to defaults'); }
+}
+
+/* ══ CUISINES ═══════════════════════════════════════ */
+const CUISINES = ["Française","Italienne","Japonaise","Chinoise","Indienne","Mexicaine","Libanaise","Marocaine","Américaine","Végétarienne","Fruits de mer","Bistrot","Brasserie","Gastronomique","Savoyarde","Pizzeria","Burger","Sushi"];
+const EMOJIS = ["🍝","🍕","🍣","🍔","🥗","🍷","🫕","🍺","🥐","🦞","🍽️","🫙","🌮","🍜","🥩","🫔","🥘","🦑"];
+
+/* ══ PLANS ══════════════════════════════════════════ */
+const PLANS = [
+  {
+    id:"trial", name:"Essai Gratuit", price:0, priceYear:0,
+    desc:"1 mois offert, sans CB", tag:"GRATUIT", tagColor:"#22C55E",
+    features:["Visibilité clients","Timer 30 min","Jusqu'à 10 tables","1 restaurant","Support email"],
+    trialDays:30, color:"#22C55E", markerColor:"#9ca3af",
+  },
+  {
+    id:"starter", name:"Starter", price:29.50, priceYear:300,
+    desc:"Idéal pour démarrer",
+    features:["Visibilité clients","Timer 30 min","Restaurants illimités","SMS confirmation","Statistiques de base","Support email"],
+    color:"#FF5C3A", markerColor:"#22c55e",
+  },
+  {
+    id:"premium", name:"Premium", price:49.50, priceYear:480,
+    desc:"Le meilleur pour votre activité",
+    features:["Tout Starter","Badge Premium sur la carte","Support téléphonique","Assistance dédiée","Services avancés à venir","Priorité dans les résultats"],
+    popular:true, color:"#a855f7", markerColor:"#22c55e",
+  },
+];
+
+/* ══ FIABILITÉ ══════════════════════════════════════ */
+const FIABILITE = {
+  tres_fiable: { label:"⭐ Très fiable", color:"#22c55e", bg:"rgba(34,197,94,0.15)", marker:"#22c55e",      ring:"rgba(34,197,94,0.4)"  },
+  fiable:      { label:"✓ Fiable",       color:"#f5a623", bg:"rgba(245,166,35,0.15)", marker:"#f5a623",     ring:"rgba(245,166,35,0.4)" },
+  peu_fiable:  { label:"⚠️ Peu fiable",  color:"#f97316", bg:"rgba(249,115,22,0.15)", marker:"#f97316",     ring:"rgba(249,115,22,0.4)" },
+  nouveau:     { label:"🆕 Nouveau",     color:"#60a5fa", bg:"rgba(96,165,250,0.15)", marker:"#60a5fa",     ring:"rgba(96,165,250,0.4)" },
+  none:        { label:"Non partenaire", color:"#6b7280", bg:"rgba(107,114,128,0.1)", marker:"#ef4444",     ring:"rgba(239,68,68,0.3)"  },
+};
+
+function FiabiliteBadge({statut, small}){
+  const f = FIABILITE[statut||"nouveau"]||FIABILITE.nouveau;
+  return(
+    <span style={{background:f.bg,color:f.color,fontSize:small?9:11,fontWeight:700,
+      padding:small?"2px 6px":"3px 10px",borderRadius:20,
+      border:`1px solid ${f.color}30`,whiteSpace:"nowrap"}}>
+      {f.label}
+    </span>
+  );
+}
+
+/* ══ HELPERS ════════════════════════════════════════ */
+function fmt(ms){if(!ms||ms<=0)return"00:00";const m=Math.floor(ms/60000),s=Math.floor((ms%60000)/1000);return`${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;}
+function Stars({r}){return <span style={{color:C.gold,fontSize:12}}>{"★".repeat(Math.round(r))}{"☆".repeat(5-Math.round(r))}</span>;}
+function BackBtn({onBack,label="Retour"}){
+  return(
+    <button onClick={onBack} style={{display:"flex",alignItems:"center",gap:6,background:"transparent",border:"none",color:C.sub,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",padding:"4px 0",marginBottom:4}}>
+      <span style={{fontSize:18,lineHeight:1}}>‹</span>{label}
+    </button>
+  );
+}
+
+function HomeBtn({onHome}){
+  return(
+    <button onClick={onHome} style={{position:"fixed",bottom:24,right:20,width:48,height:48,borderRadius:16,border:"none",background:"transparent",cursor:"pointer",boxShadow:"0 4px 16px rgba(244,0,0,0.4)",zIndex:500,padding:0}}>
+      <IOKLogo size="sm" style={{borderRadius:16,width:48,height:48}}/>
+    </button>
+  );
+}
+/* ══ TOAST NOTIFICATION ═════════════════════════════ */
+function Toast({message, type="success", onClose}){
+  useEffect(()=>{const t=setTimeout(onClose,3000);return()=>clearTimeout(t);},[]);
+  const bg = type==="error"?"rgba(239,68,68,0.9)":type==="warning"?"rgba(245,158,11,0.9)":"rgba(34,197,94,0.9)";
+  return(
+    <div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",background:bg,color:"white",padding:"12px 20px",borderRadius:12,fontSize:14,fontWeight:600,zIndex:9999,maxWidth:340,textAlign:"center",boxShadow:"0 4px 20px rgba(0,0,0,0.4)"}}>
+      {message}
+    </div>
+  );
+}
+
+/* ══ SHARED UI ══════════════════════════════════════ */
+const FInput=({label,type="text",value,onChange,placeholder,maxLength,prefix,password,hint,disabled,required})=>(
+  <div style={{marginBottom:14}}>
+    {label&&<div style={{color:C.sub,fontSize:11,fontWeight:600,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>
+      {label}{required&&<span style={{color:C.red,marginLeft:3}}>*</span>}
+    </div>}
+    <div style={{display:"flex",alignItems:"center",background:disabled?"rgba(255,255,255,0.03)":C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden",opacity:disabled?0.6:1}}>
+      {prefix&&<span style={{padding:"0 12px",color:C.muted,fontSize:14,borderRight:`1px solid ${C.border}`,flexShrink:0}}>{prefix}</span>}
+      <input type={password?"password":type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} maxLength={maxLength} disabled={disabled}
+        style={{flex:1,background:"transparent",border:"none",outline:"none",padding:"14px",color:C.text,fontSize:15,fontFamily:"inherit"}}/>
+    </div>
+    {hint&&<div style={{color:C.muted,fontSize:11,marginTop:4}}>{hint}</div>}
+  </div>
+);
+
+const Btn=({children,onClick,variant="primary",disabled,full=true,small,loading})=>{
+  const bg=variant==="green"?"linear-gradient(135deg,#15803d,#22c55e)":variant==="primary"?"linear-gradient(135deg,#FF5C3A,#FF8C42)":variant==="outline"?"transparent":C.card;
+  const shadow=variant==="green"?"0 4px 20px rgba(34,197,94,0.3)":variant==="primary"?`0 4px 20px ${C.accentGlow}`:"none";
+  return <button onClick={onClick} disabled={disabled||loading} style={{width:full?"100%":"auto",padding:small?"10px 18px":"15px 0",borderRadius:14,border:variant==="outline"?`1px solid ${C.border}`:"none",background:(disabled||loading)?"rgba(255,255,255,0.05)":bg,color:(disabled||loading)?C.muted:"white",fontSize:small?13:15,fontWeight:700,cursor:(disabled||loading)?"default":"pointer",boxShadow:(disabled||loading)?"none":shadow,transition:"all 0.2s",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+    {loading&&<span style={{width:16,height:16,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"white",borderRadius:"50%",display:"inline-block",animation:"spin 0.8s linear infinite"}}/>}
+    {children}
+  </button>;
+};
+
+const FBadge=({label,active,onClick})=><span onClick={onClick} style={{display:"inline-block",padding:"5px 12px",borderRadius:20,fontSize:12,cursor:"pointer",background:active?C.accentSoft:"rgba(255,255,255,0.05)",color:active?C.accent:C.muted,border:`1px solid ${active?C.accent:C.border}`,margin:"4px 4px 0 0",transition:"all 0.15s"}}>{label}</span>;
+
+
+/* ══ LOGO IOK SVG ════════════════════════════════════════════
+   Fond rouge #F40000 + éclair vert électrique #39FF14
+   size: "sm" (32px) | "md" (48px) | "lg" (80px)
+══════════════════════════════════════════════════════════════ */
+function IOKLogo({size="md", style={}}){
+  const dims = {sm:32, md:48, lg:80};
+  const radii = {sm:9,  md:14, lg:22};
+  const s = dims[size]||48;
+  const r = radii[size]||14;
+  // Éclair centré dans le carré, proportionnel
+  const p = s * 0.18;  // padding
+  const pts = [
+    [s*0.58, p],
+    [s*0.32, s*0.52],
+    [s*0.52, s*0.52],
+    [s*0.42, s-p],
+    [s*0.72, s*0.46],
+    [s*0.52, s*0.46],
+  ];
+  const d = `M${pts[0][0]},${pts[0][1]} L${pts[1][0]},${pts[1][1]} L${pts[2][0]},${pts[2][1]} L${pts[3][0]},${pts[3][1]} L${pts[4][0]},${pts[4][1]} L${pts[5][0]},${pts[5][1]} Z`;
+  return(
+    <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`} style={{flexShrink:0,display:"block",...style}}>
+      <rect width={s} height={s} rx={r} fill="#F40000"/>
+      <path d={d} fill="#39FF14" stroke="#39FF14" strokeWidth={s*0.02} strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+function PageShell({onBack,backLabel,topSlot,children,onHome}){
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column"}}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes promoPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.7;transform:scale(1.05)}}`}</style>
+      <div style={{padding:"52px 20px 12px",background:`linear-gradient(180deg,rgba(255,92,58,0.07),transparent)`,flexShrink:0}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          {onBack&&<BackBtn onBack={onBack} label={backLabel}/>}
+          {onBack&&(
+            <button onClick={onHome||onBack} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:10,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:16,color:C.muted}}>✕</button>
+          )}
+        </div>
+        {topSlot}
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"0 16px 80px"}}>{children}</div>
+      {onHome&&<HomeBtn onHome={onHome}/>}
+    </div>
+  );
+}
+
+/* ══ PAGE SHELL CLIENT — Light (Uber style) ═════════ */
+function ClientPageShell({onBack,backLabel,topSlot,children,onHome,noPad,stickyHeader=true}){
+  return(
+    <div style={{minHeight:"100vh",background:CL.bg,display:"flex",flexDirection:"column"}}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes promoPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.7;transform:scale(1.05)}} @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
+      {/* Header blanc avec ombre */}
+      <div style={{background:"#FFFFFF",boxShadow:"0 1px 0 rgba(0,0,0,0.08)",padding:"52px 20px 14px",flexShrink:0,...(stickyHeader?{position:"sticky",top:0,zIndex:100}:{})}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:topSlot?10:0}}>
+          {onBack&&(
+            <button onClick={onBack} style={{display:"flex",alignItems:"center",gap:6,background:"transparent",border:"none",color:CL.text,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit",padding:"4px 0"}}>
+              <span style={{fontSize:22,lineHeight:1}}>←</span>
+              {backLabel&&<span style={{fontSize:13,color:CL.muted}}>{backLabel}</span>}
+            </button>
+          )}
+          {!onBack&&<div/>}
+          <IOKLogo size="sm"/>
+        </div>
+        {topSlot}
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:noPad?"0":"0 0 80px"}}>{children}</div>
+      {onHome&&(
+        <button onClick={onHome} style={{position:"fixed",bottom:24,right:20,width:48,height:48,borderRadius:16,border:"none",background:CL.accent,cursor:"pointer",boxShadow:`0 4px 16px ${CL.accentGlow}`,zIndex:500,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <IOKLogo size="sm" style={{borderRadius:12,width:36,height:36}}/>
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ══ BRAND BAR CLIENT — Light ════════════════════════ */
+function ClientBrandBar({title,subtitle,right}){
+  return(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div>
+        {title&&<div style={{fontSize:22,fontWeight:900,color:CL.text,letterSpacing:-0.5}}>{title}</div>}
+        {subtitle&&<div style={{fontSize:13,color:CL.muted,marginTop:2}}>{subtitle}</div>}
+      </div>
+      {right}
+    </div>
+  );
+}
+
+/* ══ BTN CLIENT — Light ══════════════════════════════ */
+function ClientBtn({children,onClick,variant="primary",disabled,loading,full=true}){
+  const styles = {
+    primary:{background:CL.accent,color:"white",border:"none",boxShadow:`0 4px 16px ${CL.accentGlow}`},
+    secondary:{background:"#F0F0F0",color:CL.text,border:"none",boxShadow:"none"},
+    outline:{background:"white",color:CL.text,border:"2px solid #E8E8E8",boxShadow:"none"},
+    danger:{background:"rgba(232,0,12,0.07)",color:CL.accent,border:"1px solid rgba(232,0,12,0.2)",boxShadow:"none"},
+  };
+  const s = styles[variant]||styles.primary;
+  return(
+    <button onClick={onClick} disabled={disabled||loading}
+      style={{width:full?"100%":"auto",padding:"16px 24px",borderRadius:14,...s,fontSize:15,fontWeight:700,cursor:(disabled||loading)?"default":"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:8,opacity:(disabled||loading)?0.45:1,transition:"all 0.15s"}}>
+      {loading&&<span style={{width:16,height:16,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"white",borderRadius:"50%",display:"inline-block",animation:"spin 0.8s linear infinite"}}/>}
+      {children}
+    </button>
+  );
+}
+
+/* ══ FINPUT CLIENT — Light ═══════════════════════════ */
+const ClientFInput=({label,type="text",value,onChange,placeholder,prefix,hint,disabled,required})=>(
+  <div style={{marginBottom:16}}>
+    {label&&<div style={{color:CL.text,fontSize:13,fontWeight:700,marginBottom:8}}>
+      {label}{required&&<span style={{color:CL.accent,marginLeft:3}}>*</span>}
+    </div>}
+    <div style={{display:"flex",alignItems:"center",background:disabled?"#F8F8F8":"#FFFFFF",border:"1.5px solid",borderColor:disabled?"#E8E8E8":"#E0E0E0",borderRadius:12,overflow:"hidden",opacity:disabled?0.6:1,transition:"border-color 0.15s"}}>
+      {prefix&&<span style={{padding:"0 14px",color:CL.muted,fontSize:14,borderRight:"1.5px solid #E8E8E8",flexShrink:0}}>{prefix}</span>}
+      <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} disabled={disabled}
+        style={{flex:1,background:"transparent",border:"none",outline:"none",padding:"14px 16px",color:CL.text,fontSize:15,fontFamily:"inherit"}}/>
+    </div>
+    {hint&&<div style={{color:CL.muted,fontSize:12,marginTop:5}}>{hint}</div>}
+  </div>
+);
+
+function BrandBar({subtitle,right}){
+  return(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+          <IOKLogo size="sm" style={{borderRadius:12}}/>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",justifyContent:"center"}}>
+          <div style={{fontSize:8,letterSpacing:3,color:C.accent,textTransform:"uppercase",fontWeight:700,lineHeight:1.4}}>INSTANT OFFER KONECT</div>
+          <div style={{color:C.text,fontSize:16,fontWeight:800,lineHeight:1.2}}>{subtitle}</div>
+        </div>
+      </div>
+      {right}
+    </div>
+  );
+}
+
+function StepBar({steps,current}){
+  const idx=steps.indexOf(current);
+  return(
+    <div style={{display:"flex",alignItems:"center",marginTop:12}}>
+      {steps.map((s,i)=>(
+        <div key={i} style={{display:"flex",alignItems:"center",flex:i<steps.length-1?1:"auto"}}>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+            <div style={{width:24,height:24,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,background:i<idx?C.green:i===idx?C.accent:C.card,color:i<=idx?"white":C.muted,border:`2px solid ${i<idx?C.green:i===idx?C.accent:C.border}`}}>{i<idx?"✓":i+1}</div>
+            <span style={{fontSize:8,color:i===idx?C.accent:C.muted,fontWeight:i===idx?700:400,whiteSpace:"nowrap"}}>{s}</span>
+          </div>
+          {i<steps.length-1&&<div style={{flex:1,height:2,background:i<idx?C.green:C.border,margin:"0 4px",marginBottom:16}}/>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ══ LEAFLET MAP ════════════════════════════════════ */
+function LeafletMapEdit({restaurants,selected,onSelect,city,height=260,editMode=false,editLat,editLng,onEditMove}){
+  const mapRef=useRef(null);
+  const instanceRef=useRef(null);
+  const markersRef=useRef([]);
+  const editMarkerRef=useRef(null);
+  const cityObj=CITIES.find(c=>c.id===city)||CITIES[0];
+
+  const buildIcon=(r,isSel)=>{
+    const ok=r.disponible&&r.disponible_jusqu&&new Date(r.disponible_jusqu)>new Date();
+    const color=ok?"#22c55e":"#6b7280";
+    const size=isSel?30:22;
+    return window.L.divIcon({
+      html:`<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:${isSel?3:2}px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;font-size:${isSel?13:10}px;">${r.image_emoji||"🍽️"}</div>`,
+      className:"",iconSize:[size,size],iconAnchor:[size/2,size/2],
+    });
+  };
+
+  useEffect(()=>{
+    if(!mapRef.current||instanceRef.current) return;
+    const L=window.L;
+    const initLat=editMode&&editLat?editLat:cityObj.lat;
+    const initLng=editMode&&editLng?editLng:cityObj.lng;
+    const initZoom=editMode&&editLat?17:cityObj.zoom;
+    const map=L.map(mapRef.current,{center:[initLat,initLng],zoom:initZoom,zoomControl:true,attributionControl:true});
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
+    if(!editMode) L.marker([cityObj.lat,cityObj.lng],{icon:L.divIcon({html:`<div style="width:18px;height:18px;border-radius:50%;background:#3b82f6;border:3px solid white;box-shadow:0 0 0 6px rgba(59,130,246,0.25);"></div>`,className:"",iconSize:[18,18],iconAnchor:[9,9]})}).addTo(map).bindPopup("📍 Vous êtes ici",{className:"iok-popup"});
+    // Mode édition
+    if(editMode){
+      const em=L.marker([editLat||cityObj.lat,editLng||cityObj.lng],{
+        icon:L.divIcon({html:`<div style="width:32px;height:32px;border-radius:50%;background:#FF5C3A;border:3px solid white;box-shadow:0 0 0 6px rgba(255,92,58,0.3);display:flex;align-items:center;justify-content:center;font-size:16px;">📍</div>`,className:"",iconSize:[32,32],iconAnchor:[16,16]}),
+        draggable:true,
+      });
+      em.addTo(map);
+      em.on("dragend",()=>{const p=em.getLatLng();if(onEditMove)onEditMove(p.lat,p.lng);});
+      map.on("click",e=>{em.setLatLng(e.latlng);if(onEditMove)onEditMove(e.latlng.lat,e.latlng.lng);});
+      editMarkerRef.current=em;
+      if(editLat&&editLng) map.setView([editLat,editLng],16);
+    }
+    instanceRef.current=map;
+    setTimeout(()=>map.invalidateSize(),200);
+    return()=>{map.remove();instanceRef.current=null;};
+  },[]);
+
+  useEffect(()=>{if(instanceRef.current)instanceRef.current.setView([cityObj.lat,cityObj.lng],cityObj.zoom);},[city]);
+
+  useEffect(()=>{
+    const map=instanceRef.current;
+    if(!map||!window.L||editMode) return;
+    markersRef.current.forEach(m=>map.removeLayer(m));
+    markersRef.current=[];
+    (restaurants||[]).forEach(r=>{
+      if(!r.latitude||!r.longitude) return;
+      const isSel=selected?.id===r.id;
+      const ok=r.disponible&&r.disponible_jusqu&&new Date(r.disponible_jusqu)>new Date();
+      const m=window.L.marker([r.latitude,r.longitude],{icon:buildIcon(r,isSel)});
+      m.addTo(map);
+      const tLeft=ok?Math.max(0,new Date(r.disponible_jusqu)-new Date()):0;
+      const timeStr=ok?`<span style="color:#4ade80;font-weight:700;">${fmt(tLeft)} restant</span>`:`<span style="color:#6b7280;">Indisponible</span>`;
+      m.bindPopup(`<div><b style="font-size:14px;">${r.image_emoji} ${r.nom}</b><br/><span style="color:#9CA3AF;font-size:11px;">${r.cuisines?r.cuisines.join(", "):""} · ~${r.prix_moyen||"?"}€</span><br/>${timeStr}</div>`,{className:"iok-popup",maxWidth:200});
+      m.on("click",()=>{if(onSelect)onSelect(r);});
+      markersRef.current.push(m);
+    });
+  },[restaurants,selected]);
+
+  useEffect(()=>{if(editMarkerRef.current&&editLat&&editLng)editMarkerRef.current.setLatLng([editLat,editLng]);},[editLat,editLng]);
+
+  return(
+    <div style={{borderRadius:20,overflow:"hidden",border:`1px solid ${C.border}`,marginBottom:14}}>
+      <div ref={mapRef} style={{height,width:"100%",display:"block"}}/>
+      {!editMode&&(
+        <div style={{padding:"8px 14px",background:"#0f1520",borderTop:`1px solid ${C.border}`}}>
+          <div style={{display:"flex",flexWrap:"wrap",gap:"6px 16px"}}>
+            {[["#22c55e","Disponible — abonné"],["#ef4444","Indisponible — abonné"],["#9ca3af","Non inscrit IOK"],["#3b82f6","Vous"]].map(([c,l])=>(
+              <span key={l} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:C.muted}}>
+                <span style={{width:8,height:8,borderRadius:"50%",background:c,display:"inline-block",flexShrink:0}}/>
+                {l}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {editMode&&<div style={{padding:"10px 14px",background:"#0f1520",borderTop:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>📍 Appuyez sur la carte ou faites glisser le marqueur</div>}
+    </div>
+  );
+}
+
+/* ══ SPLASH — Light style Uber ═══════════════════════ */
+function Splash({onStart}){
+  const [show,setShow]=useState(false);
+  useEffect(()=>{setTimeout(()=>setShow(true),80);},[]);
+  return(
+    <div style={{minHeight:"100vh",background:"#FFFFFF",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"space-between",padding:"0 28px",opacity:show?1:0,transition:"opacity 0.5s"}}>
+      {/* Header */}
+      <div style={{width:"100%",paddingTop:56,display:"flex",justifyContent:"center"}}>
+        <IOKLogo size="md"/>
+      </div>
+
+      {/* Centre — hero */}
+      <div style={{textAlign:"center",flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:0}}>
+        <div style={{fontSize:11,letterSpacing:5,color:CL.accent,textTransform:"uppercase",fontWeight:800,marginBottom:12}}>INSTANT OFFER KONECT</div>
+        <div style={{fontSize:42,fontWeight:900,color:CL.text,letterSpacing:-2,lineHeight:1,marginBottom:16}}>La table libre,<br/>maintenant.</div>
+        <div style={{color:CL.muted,fontSize:15,lineHeight:1.7,maxWidth:280}}>Trouvez une table disponible en temps réel dans votre ville.</div>
+        <div style={{marginTop:8,color:"#BDBDBD",fontSize:11,fontWeight:500,letterSpacing:1}}>v35.6</div>
+        {/* Indicateurs */}
+        <div style={{display:"flex",gap:6,marginTop:28}}>
+          {[CL.accent,"rgba(232,0,12,0.35)","rgba(232,0,12,0.15)"].map((c,i)=>(
+            <div key={i} style={{width:i===0?28:8,height:6,borderRadius:3,background:c}}/>
+          ))}
+        </div>
+      </div>
+
+      {/* Boutons bas */}
+      <div style={{width:"100%",maxWidth:380,paddingBottom:48,display:"flex",flexDirection:"column",gap:12}}>
+        {/* CTA principal client */}
+        <button onClick={()=>onStart("client")}
+          style={{width:"100%",padding:"18px 0",borderRadius:16,border:"none",background:CL.accent,color:"white",fontSize:17,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:`0 6px 24px ${CL.accentGlow}`,letterSpacing:-0.3}}>
+          Trouver une table 🍽️
+        </button>
+        {/* Mon compte */}
+        <button onClick={()=>onStart("mon-compte")}
+          style={{width:"100%",padding:"16px 0",borderRadius:16,border:"2px solid #F0F0F0",background:"#FFFFFF",color:CL.text,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+          👤 Mon compte
+        </button>
+        {/* Restaurateur — discret */}
+        <button onClick={()=>onStart("restaurateur")}
+          style={{width:"100%",padding:"12px 0",borderRadius:12,border:"none",background:"transparent",color:CL.muted,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+          J'ai un restaurant →
+        </button>
+        <div style={{textAlign:"center",color:"#BDBDBD",fontSize:11,marginTop:4}}>
+          En continuant, vous acceptez nos <span style={{color:CL.accent,cursor:"pointer"}}>CGU</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══ RESTO LOGIN ═════════════════════════════════════ */
+function RestaurateurLogin({onSuccess,onRegister,onBack,onHome}){
+  const [username,setUsername]=useState("");
+  const [password,setPassword]=useState("");
+  const [showPwd,setShowPwd]=useState(false);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+
+  const login=async()=>{
+    setError("");setLoading(true);
+    try{
+      // 1. Récupère le restaurateur par username
+      const {data:rt,error:e1}=await db().from("restaurateurs")
+        .select("*")
+        .eq("username",username.trim())
+        .single();
+      if(e1||!rt){setError("Identifiant introuvable.");setLoading(false);return;}
+
+      // 2. Vérification mot de passe directement en base (password_hash)
+      // En production : utiliser Supabase Auth
+      // En test : vérification directe du champ password_hash
+      if(rt.password_hash !== password){
+        setError("Mot de passe incorrect.");
+        setLoading(false);
+        return;
+      }
+
+      // 3. Tentative connexion Supabase Auth (optionnelle — si compte Auth existe)
+      // Ne bloque pas si le compte Auth n'existe pas encore
+      try{
+        await db().auth.signInWithPassword({email:rt.email, password});
+      }catch(authErr){
+        console.log("Auth optionnelle non disponible:", authErr.message);
+      }
+
+      // 4. Charge ses restaurants
+      const {data:rests}=await db().from("restaurants")
+        .select("*")
+        .eq("restaurateur_id",rt.id)
+        .eq("actif",true)
+        .order("created_at");
+
+      onSuccess({...rt, restaurants:rests||[]});
+    }catch(err){
+      setError("Erreur de connexion. Vérifiez votre réseau.");
+    }finally{setLoading(false);}
+  };
+
+  return(
+    <PageShell onBack={onBack} backLabel="Accueil" onHome={onHome} topSlot={<BrandBar subtitle="Espace Restaurateur"/>}>
+      <div style={{paddingTop:8}}>
+        <div style={{marginBottom:24}}>
+          <div style={{color:C.text,fontSize:24,fontWeight:900,marginBottom:4}}>Connexion</div>
+          <div style={{color:C.muted,fontSize:13}}>Accédez à votre tableau de bord</div>
+        </div>
+        <FInput label="Identifiant" value={username} onChange={setUsername} placeholder="Votre nom d'utilisateur"/>
+        <div style={{marginBottom:14}}>
+          <div style={{color:C.sub,fontSize:11,fontWeight:600,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Mot de passe</div>
+          <div style={{display:"flex",alignItems:"center",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+            <input type={showPwd?"text":"password"} value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&username&&password&&login()} placeholder="••••••••"
+              style={{flex:1,background:"transparent",border:"none",outline:"none",padding:"14px",color:C.text,fontSize:15,fontFamily:"inherit"}}/>
+            <button onClick={()=>setShowPwd(v=>!v)} style={{padding:"0 14px",background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>{showPwd?"🙈":"👁️"}</button>
+          </div>
+        </div>
+        {error&&<div style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,color:C.red,fontSize:13}}>⚠️ {error}</div>}
+        <Btn onClick={login} disabled={!username.trim()||!password} loading={loading}>{loading?"Connexion…":"Se connecter"}</Btn>
+        <div style={{height:1,background:C.border,margin:"24px 0"}}/>
+        <div style={{textAlign:"center",marginBottom:12,color:C.sub,fontSize:13}}>Pas encore de compte ?</div>
+        <Btn variant="outline" onClick={onRegister}>Créer mon compte restaurateur</Btn>
+      </div>
+    </PageShell>
+  );
+}
+
+/* ══ RESTO INSCRIPTION ══════════════════════════════ */
+
+/* ══ PLAN SELECTOR ══════════════════════════════════ */
+function PlanSelector({plan, setPlan}){
+  const [billing,setBilling]=useState("monthly");
+  return(
+    <>
+      {/* Toggle mensuel / annuel */}
+      <div style={{display:"flex",background:C.card,borderRadius:12,padding:4,marginBottom:16,gap:4}}>
+        {["monthly","yearly"].map(b=>(
+          <button key={b} onClick={()=>setBilling(b)} style={{flex:1,padding:"8px 0",borderRadius:9,border:"none",background:billing===b?"linear-gradient(135deg,#FF5C3A,#FF8C42)":"transparent",color:billing===b?"white":C.muted,fontSize:13,fontWeight:billing===b?700:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s"}}>
+            {b==="monthly"?"Mensuel":"Annuel · -15%"}
+          </button>
+        ))}
+      </div>
+      {/* Cartes plans */}
+      {PLANS.map(p=>{
+        const monthlyPrice = billing==="yearly"&&p.priceYear ? (p.priceYear/12).toFixed(2) : p.price;
+        const planColor = p.id==="trial"?"#22c55e":p.id==="premium"?"#a855f7":C.accent;
+        return(
+          <div key={p.id} onClick={()=>setPlan(p.id)} style={{
+            background:plan===p.id?`${planColor}18`:C.card,
+            border:`2px solid ${plan===p.id?planColor:p.id==="trial"?"rgba(34,197,94,0.3)":C.border}`,
+            borderRadius:16,padding:16,marginBottom:12,cursor:"pointer",
+            position:"relative",transition:"all 0.2s",
+          }}>
+            {p.tag&&<div style={{position:"absolute",top:-1,right:14,background:p.tagColor||C.accent,color:"white",fontSize:10,fontWeight:800,padding:"3px 10px",borderRadius:"0 0 8px 8px"}}>{p.tag}</div>}
+            {p.popular&&!p.tag&&<div style={{position:"absolute",top:-1,right:14,background:p.id==="premium"?"#a855f7":C.accent,color:"white",fontSize:10,fontWeight:800,padding:"3px 10px",borderRadius:"0 0 8px 8px"}}>POPULAIRE</div>}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+              <div>
+                <div style={{color:planColor,fontWeight:800,fontSize:16}}>{p.name}</div>
+                <div style={{color:C.muted,fontSize:12}}>{p.desc}</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{color:plan===p.id?planColor:C.text,fontSize:22,fontWeight:900}}>
+                  {p.price===0?"Gratuit":`${monthlyPrice}€`}
+                </div>
+                {p.price>0&&<div style={{color:C.muted,fontSize:11}}>/mois</div>}
+                {p.price>0&&billing==="yearly"&&p.priceYear&&(
+                  <div style={{color:"#22c55e",fontSize:10,fontWeight:600}}>{p.priceYear}€/an</div>
+                )}
+                {p.trialDays&&<div style={{color:"#22c55e",fontSize:11,fontWeight:600}}>{p.trialDays} jours offerts</div>}
+              </div>
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:"4px 14px"}}>
+              {p.features.map(f=>(
+                <div key={f} style={{display:"flex",alignItems:"center",gap:4}}>
+                  <span style={{color:"#22c55e",fontSize:11}}>✓</span>
+                  <span style={{color:C.sub,fontSize:12}}>{f}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function RestaurateurAuth({onSuccess,onBackToLogin,onHome}){
+  const STEPS=["Compte","Formule","Activation","Restaurants"];
+  const [step,setStep]=useState("account");
+  const [account,setAccount]=useState({responsable:"",email:"",tel:"",username:"",password:"",confirm:""});
+  const [plan,setPlan]=useState("trial");
+  const [restaurants,setRestaurants]=useState([]);
+  const [editingResto,setEditingResto]=useState(null);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+  const [showPwd,setShowPwd]=useState(false);
+  const [card,setCard]=useState({num:"",exp:"",cvc:"",holder:""});
+
+  const isTrial=plan==="trial";
+  const stepIdx=step==="account"?0:step==="plan"?1:step==="payment"?2:3;
+  const prevStep=()=>{if(step==="plan")setStep("account");else if(step==="restaurants")setStep("plan");else if(step==="payment")setStep("restaurants");};
+  const fmtCard=v=>v.replace(/\D/g,"").slice(0,16).replace(/(.{4})/g,"$1 ").trim();
+  const fmtExp=v=>{const d=v.replace(/\D/g,"").slice(0,4);return d.length>2?d.slice(0,2)+"/"+d.slice(2):d;};
+  const validAccount=account.responsable&&account.email&&account.username.trim().length>=3&&account.password.length>=6&&account.password===account.confirm;
+  const validCard=card.num.replace(/\s/g,"").length===16&&card.exp.length===5&&card.cvc.length===3&&card.holder;
+
+  const finish=async()=>{
+    setError("");setLoading(true);
+    try{
+      // Vérifie username non dupliqué
+      const {data:existingUser}=await db().from("restaurateurs").select("id").eq("username",account.username.trim()).maybeSingle();
+      if(existingUser) throw new Error("Ce nom d'utilisateur est déjà pris.");
+
+      // Vérifie email non dupliqué
+      const {data:existingEmail}=await db().from("restaurateurs").select("id").eq("email",account.email.trim().toLowerCase()).maybeSingle();
+      if(existingEmail) throw new Error("Cet email est déjà utilisé. Connectez-vous ou utilisez un autre email.");
+
+      // 1. Créer le compte Supabase Auth
+      const {data:authData,error:authErr}=await db().auth.signUp({
+        email:account.email.trim().toLowerCase(),
+        password:account.password,
+        options:{data:{type:"restaurateur",username:account.username.trim(),responsable:account.responsable}}
+      });
+      if(authErr){
+        if(authErr.message.toLowerCase().includes("already")){
+          throw new Error("Cet email est déjà enregistré. Veuillez vous connecter.");
+        }
+        throw new Error(authErr.message);
+      }
+
+      // 2. Créer le restaurateur
+      const planFin=isTrial?new Date(Date.now()+30*24*60*60*1000).toISOString():null;
+      const {data:rt,error:rtErr}=await db().from("restaurateurs").insert({
+        auth_user_id:authData.user?.id,
+        responsable:account.responsable.trim(),
+        email:account.email.trim().toLowerCase(),
+        telephone:account.tel||null,
+        username:account.username.trim(),
+        password_hash:"managed_by_supabase_auth",
+        plan, plan_debut:new Date().toISOString(), plan_fin:planFin, actif:true,
+      }).select().single();
+      if(rtErr) throw new Error("Erreur création compte : "+rtErr.message);
+
+      // 3. Créer les restaurants (si ajoutés à cette étape)
+      let savedRestaurants=[];
+      if(restaurants.length>0){
+        const rows=restaurants.map(r=>({
+          restaurateur_id:rt.id, nom:r.nom, siret:r.siret||null,
+          adresse:r.adresse, ville:r.ville, cuisines:r.cuisines,
+          image_emoji:r.image||"🍽️", latitude:r.lat||null, longitude:r.lng||null,
+          prix_moyen:r.prix_moyen||null, nb_tables_2:0, nb_tables_4:0,
+          disponible:false, actif:true,
+        }));
+        const {data:saved,error:restoErr}=await db().from("restaurants").insert(rows).select();
+        if(restoErr) throw new Error("Erreur création restaurant : "+restoErr.message);
+        savedRestaurants=saved||[];
+      }
+
+      setStep("done");
+      setTimeout(()=>onSuccess({...rt,restaurants:savedRestaurants}),1400);
+    }catch(err){
+      setError(err.message||"Erreur lors de la création du compte.");
+      window.scrollTo(0,0);
+    }finally{setLoading(false);}
+  }
+
+  if(step==="done") return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,padding:32}}>
+      <div style={{fontSize:64}}>🎉</div>
+      <div style={{color:C.text,fontSize:24,fontWeight:900,textAlign:"center"}}>Compte créé !</div>
+      <div style={{color:C.muted,fontSize:14,textAlign:"center",lineHeight:1.6}}>
+        Bienvenue sur IOK. Vous pouvez maintenant ajouter vos restaurants depuis votre tableau de bord.
+      </div>
+      <div style={{background:isTrial?C.greenSoft:C.accentSoft,border:`1px solid ${isTrial?C.green:C.accent}`,borderRadius:14,padding:"12px 24px",color:isTrial?C.green:C.accent,fontSize:14,fontWeight:700}}>
+        {isTrial?"🎁 Essai gratuit 30 jours activé !":"✓ Plan "+PLANS.find(p=>p.id===plan)?.name+" activé"}
+      </div>
+    </div>
+  );
+
+  if(editingResto!==null) return(
+    <EditRestaurant
+      resto={editingResto}
+      onSave={r=>{
+        if(r.id) setRestaurants(rs=>rs.map(x=>x.id===r.id?r:x));
+        else setRestaurants(rs=>[...rs,{...r,id:"tmp_"+Date.now()}]);
+        setEditingResto(null);
+      }}
+      onCancel={()=>setEditingResto(null)}
+    />
+  );
+
+  return(
+    <PageShell onBack={step==="account"?onBackToLogin:prevStep} backLabel={step==="account"?"← Connexion":"← Étape précédente"} onHome={onHome} topSlot={<><BrandBar subtitle="Créer un compte"/><StepBar steps={STEPS} current={STEPS[stepIdx]}/></>}>
+      <div style={{paddingTop:16}}>
+
+        {/* COMPTE */}
+        {step==="account"&&<>
+          <div style={{color:C.text,fontSize:21,fontWeight:800,marginBottom:2}}>Vos informations</div>
+          <div style={{color:C.muted,fontSize:13,marginBottom:18}}>Compte gestionnaire pour tous vos restaurants</div>
+          <FInput label="Nom du responsable" required={true} value={account.responsable} onChange={v=>setAccount(p=>({...p,responsable:v}))} placeholder="Prénom Nom"/>
+          <FInput label="Email" required={true} type="email" value={account.email} onChange={v=>setAccount(p=>({...p,email:v}))} placeholder="contact@monresto.fr"/>
+          <FInput label="Téléphone" type="tel" value={account.tel} onChange={v=>setAccount(p=>({...p,tel:v}))} placeholder="04 50 12 34 56"/>
+          <FInput label="Nom d'utilisateur" required={true} value={account.username} onChange={v=>setAccount(p=>({...p,username:v}))} placeholder="ex: Richard" hint="Minimum 3 caractères"/>
+          <div style={{marginBottom:14}}>
+            <div style={{color:C.sub,fontSize:11,fontWeight:600,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Mot de passe</div>
+            <div style={{display:"flex",alignItems:"center",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+              <input type={showPwd?"text":"password"} value={account.password} onChange={e=>setAccount(p=>({...p,password:e.target.value}))} placeholder="Minimum 6 caractères" title="Le mot de passe doit contenir au moins 6 caractères"
+                style={{flex:1,background:"transparent",border:"none",outline:"none",padding:"14px",color:C.text,fontSize:15,fontFamily:"inherit"}}/>
+              <button onClick={()=>setShowPwd(v=>!v)} style={{padding:"0 14px",background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>{showPwd?"🙈":"👁️"}</button>
+            </div>
+            <div style={{color:"#eab308",fontSize:11,marginTop:4}}>⚠️ Minimum 6 caractères requis</div>
+          </div>
+          <div style={{marginBottom:20}}>
+            <div style={{color:C.sub,fontSize:11,fontWeight:600,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Confirmer</div>
+            <div style={{background:C.card,border:`1px solid ${account.confirm&&account.confirm!==account.password?"rgba(239,68,68,0.5)":C.border}`,borderRadius:12,overflow:"hidden"}}>
+              <input type="password" value={account.confirm} onChange={e=>setAccount(p=>({...p,confirm:e.target.value}))} placeholder="Répéter le mot de passe"
+                style={{width:"100%",background:"transparent",border:"none",outline:"none",padding:"14px",color:C.text,fontSize:15,fontFamily:"inherit"}}/>
+            </div>
+            {account.confirm&&account.confirm!==account.password&&<div style={{color:C.red,fontSize:11,marginTop:4}}>Les mots de passe ne correspondent pas</div>}
+            {account.confirm&&account.confirm===account.password&&account.password.length>=6&&<div style={{color:C.green,fontSize:11,marginTop:4}}>✓ Identiques</div>}
+          </div>
+          <Btn onClick={()=>setStep("plan")} disabled={!validAccount}>Suivant : formule →</Btn>
+        </>}
+
+        {/* PLAN */}
+        {step==="plan"&&<>
+          <div style={{color:C.text,fontSize:21,fontWeight:800,marginBottom:2}}>Votre formule</div>
+          <div style={{color:C.muted,fontSize:13,marginBottom:18}}>Commencez gratuitement</div>
+          
+          <PlanSelector plan={plan} setPlan={setPlan}/>
+          <Btn onClick={()=>setStep("payment")}>Suivant : activation →</Btn>
+        </>}
+
+        {/* RESTAURANTS */}
+        {step==="restaurants"&&<>
+          <div style={{color:C.text,fontSize:21,fontWeight:800,marginBottom:2}}>Vos restaurants</div>
+          <div style={{color:C.muted,fontSize:13,marginBottom:18}}>Ajoutez un ou plusieurs établissements</div>
+          {restaurants.map(r=>(
+            <div key={r.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
+              <div style={{fontSize:28}}>{r.image}</div>
+              <div style={{flex:1}}>
+                <div style={{color:C.text,fontWeight:700,fontSize:14}}>{r.nom}</div>
+                <div style={{color:C.muted,fontSize:12}}>{r.adresse}, {r.ville}</div>
+                <div style={{color:r.lat&&r.lng?C.green:C.muted,fontSize:11}}>{r.lat&&r.lng?"📍 Localisé":"⚠️ Non localisé"}</div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>setEditingResto(r)} style={{background:"rgba(255,255,255,0.07)",border:"none",color:C.sub,padding:"6px 10px",borderRadius:8,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>✏️</button>
+                <button onClick={()=>setRestaurants(rs=>rs.filter(x=>x.id!==r.id))} style={{background:"rgba(239,68,68,0.1)",border:"none",color:C.red,padding:"6px 10px",borderRadius:8,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>✕</button>
+              </div>
+            </div>
+          ))}
+          {restaurants.length===0&&(
+            <div style={{background:C.card,border:`1px dashed ${C.border}`,borderRadius:14,padding:"24px 16px",marginBottom:16,textAlign:"center"}}>
+              <div style={{fontSize:32,marginBottom:8}}>🏪</div>
+              <div style={{color:C.muted,fontSize:13}}>Aucun restaurant ajouté</div>
+            </div>
+          )}
+          <button onClick={()=>setEditingResto({nom:"",siret:"",adresse:"",ville:"Annecy",cuisines:[],image:"🍽️",lat:null,lng:null,tables2:4,tables4:3,prix_moyen:30})} style={{width:"100%",padding:"14px 0",borderRadius:14,border:`2px dashed ${C.accent}`,background:"transparent",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:16}}>
+            + Ajouter un restaurant
+          </button>
+          {error&&<div style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,color:C.red,fontSize:13}}>⚠️ {error}</div>}
+          <Btn onClick={()=>setStep("payment")} disabled={restaurants.length===0}>Suivant : activation →</Btn>
+        </>}
+
+        {/* PAIEMENT / ACTIVATION */}
+        {step==="payment"&&<>
+          {isTrial?<>
+            <div style={{color:C.text,fontSize:21,fontWeight:800,marginBottom:2}}>Activation gratuite</div>
+            <div style={{background:C.greenSoft,border:`1px solid rgba(34,197,94,0.4)`,borderRadius:20,padding:24,marginBottom:22,textAlign:"center",marginTop:18}}>
+              <div style={{fontSize:52,marginBottom:12}}>🎁</div>
+              <div style={{color:C.green,fontWeight:800,fontSize:20,marginBottom:6}}>1 mois offert</div>
+              <div style={{color:C.text,fontWeight:700,fontSize:16,marginBottom:4}}>{restaurants.length} restaurant{restaurants.length>1?"s":""}</div>
+              <div style={{color:C.muted,fontSize:13}}>Sans CB · 30 jours</div>
+            </div>
+            {["Aucune CB requise","Accès immédiat","Résiliation en 1 clic","Rappel avant la fin d'essai"].map(f=><div key={f} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}><span style={{color:C.green}}>✓</span><span style={{color:C.sub,fontSize:13}}>{f}</span></div>)}
+            {error&&<div style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,color:C.red,fontSize:13}}>⚠️ {error}</div>}
+            <div style={{height:12}}/>
+            <Btn variant="green" onClick={finish} loading={loading}>{loading?"Création du compte…":"Créer mon compte 🚀"}</Btn>
+          </>:<>
+            <div style={{color:C.text,fontSize:21,fontWeight:800,marginBottom:18}}>Paiement</div>
+            <div style={{background:C.accentSoft,border:`1px solid rgba(255,92,58,0.25)`,borderRadius:12,padding:14,marginBottom:18}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div><div style={{color:C.text,fontWeight:700}}>{PLANS.find(p=>p.id===plan)?.name}</div><div style={{color:C.accent,fontSize:13}}>{restaurants.length} restaurant{restaurants.length>1?"s":""}</div></div>
+                <div style={{color:C.text,fontSize:22,fontWeight:900}}>{PLANS.find(p=>p.id===plan)?.price}€<span style={{fontSize:12,color:C.muted}}>/mois</span></div>
+              </div>
+            </div>
+            <div style={{background:"linear-gradient(135deg,#1C2440,#252B40)",borderRadius:18,padding:18,marginBottom:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:20}}><div style={{width:34,height:26,borderRadius:4,background:"linear-gradient(135deg,#FFD700,#FFA500)"}}/><span style={{color:"rgba(255,255,255,0.35)"}}>VISA</span></div>
+              <div style={{color:"rgba(255,255,255,0.9)",fontFamily:"monospace",letterSpacing:2,marginBottom:14}}>{card.num||"•••• •••• •••• ••••"}</div>
+              <div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{color:"rgba(255,255,255,0.35)",fontSize:8}}>TITULAIRE</div><div style={{color:"rgba(255,255,255,0.8)",fontSize:12,fontWeight:600}}>{card.holder||"VOTRE NOM"}</div></div><div><div style={{color:"rgba(255,255,255,0.35)",fontSize:8}}>EXPIRY</div><div style={{color:"rgba(255,255,255,0.8)",fontSize:12,fontWeight:600}}>{card.exp||"MM/YY"}</div></div></div>
+            </div>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:14,marginBottom:16}}>
+              <div style={{marginBottom:12}}><div style={{color:C.sub,fontSize:10,textTransform:"uppercase",marginBottom:6}}>Numéro</div><input value={card.num} onChange={e=>setCard(p=>({...p,num:fmtCard(e.target.value)}))} placeholder="1234 5678 9012 3456" maxLength={19} style={{width:"100%",background:"transparent",border:"none",outline:"none",color:C.text,fontSize:15,fontFamily:"monospace",letterSpacing:2,padding:0,boxSizing:"border-box"}}/></div>
+              <div style={{height:1,background:C.border,margin:"0 0 12px"}}/>
+              <div style={{display:"flex",gap:16}}>
+                <div style={{flex:1}}><div style={{color:C.sub,fontSize:10,textTransform:"uppercase",marginBottom:6}}>Expiration</div><input value={card.exp} onChange={e=>setCard(p=>({...p,exp:fmtExp(e.target.value)}))} placeholder="MM/YY" maxLength={5} style={{width:"100%",background:"transparent",border:"none",outline:"none",color:C.text,fontSize:15,fontFamily:"monospace",padding:0}}/></div>
+                <div style={{flex:1}}><div style={{color:C.sub,fontSize:10,textTransform:"uppercase",marginBottom:6}}>CVC</div><input value={card.cvc} onChange={e=>setCard(p=>({...p,cvc:e.target.value.replace(/\D/g,"").slice(0,3)}))} placeholder="•••" maxLength={3} type="password" style={{width:"100%",background:"transparent",border:"none",outline:"none",color:C.text,fontSize:15,fontFamily:"monospace",padding:0}}/></div>
+              </div>
+              <div style={{height:1,background:C.border,margin:"12px 0"}}/>
+              <div><div style={{color:C.sub,fontSize:10,textTransform:"uppercase",marginBottom:6}}>Titulaire</div><input value={card.holder} onChange={e=>setCard(p=>({...p,holder:e.target.value.toUpperCase()}))} placeholder="NOM PRÉNOM" style={{width:"100%",background:"transparent",border:"none",outline:"none",color:C.text,fontSize:14,fontFamily:"monospace",padding:0}}/></div>
+            </div>
+            {error&&<div style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,color:C.red,fontSize:13}}>⚠️ {error}</div>}
+            <Btn onClick={finish} disabled={!validCard} loading={loading}>{loading?"Traitement…":`Payer ${PLANS.find(p=>p.id===plan)?.price}€`}</Btn>
+          </>}
+        </>}
+      </div>
+    </PageShell>
+  );
+}
+
+/* ══ EDIT RESTAURANT ════════════════════════════════ */
+function EditRestaurant({resto,onSave,onCancel}){
+  const [form,setForm]=useState({nom:resto.nom||"",siret:resto.siret||"",adresse:resto.adresse||"",ville:resto.ville||"Annecy",cuisines:resto.cuisines||[],image:resto.image||"🍽️",lat:resto.lat||null,lng:resto.lng||null,prix_moyen:resto.prix_moyen||30,id:resto.id||null});
+  const [locStep,setLocStep]=useState("form");
+  const [locating,setLocating]=useState(false);
+  const ff=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const toggleC=c=>setForm(p=>({...p,cuisines:p.cuisines.includes(c)?p.cuisines.filter(x=>x!==c):[...p.cuisines,c]}));
+  const fmtSiret=v=>v.replace(/\D/g,"").slice(0,14).replace(/(.{3})(.{3})(.{3})(.{5})/,"$1 $2 $3 $4").trim();
+  const validForm=form.nom&&form.adresse&&form.ville&&form.cuisines.length>0;
+
+  const geolocate=()=>{
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      pos=>{ff("lat",pos.coords.latitude);ff("lng",pos.coords.longitude);setLocating(false);setLocStep("map");},
+      ()=>{setLocating(false);setLocStep("map");},
+      {enableHighAccuracy:true,timeout:8000}
+    );
+  };
+
+  if(locStep==="map") return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column"}}>
+      <div style={{padding:"52px 20px 12px",background:`linear-gradient(180deg,rgba(255,92,58,0.07),transparent)`}}>
+        <BackBtn onBack={()=>setLocStep("form")} label="← Retour"/>
+        <BrandBar subtitle="Localiser le restaurant"/>
+      </div>
+      <div style={{padding:"0 16px 16px",flex:1,display:"flex",flexDirection:"column"}}>
+        <div style={{color:C.muted,fontSize:13,marginBottom:12}}>Appuyez sur la carte ou faites glisser le marqueur 📍</div>
+        <LeafletMapEdit restaurants={[]} selected={null} city="annecy" height={320} editMode={true} editLat={form.lat||45.8992} editLng={form.lng||6.1294} onEditMove={(lat,lng)=>{ff("lat",lat);ff("lng",lng);}}/>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 14px",marginBottom:16,fontSize:12,color:C.muted}}>
+          Position : <strong style={{color:C.text}}>{form.lat?.toFixed(5)}, {form.lng?.toFixed(5)}</strong>
+        </div>
+        <Btn variant="green" onClick={()=>setLocStep("confirmed")}>✓ Confirmer cette localisation</Btn>
+      </div>
+    </div>
+  );
+
+  if(locStep==="confirmed") return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:14,padding:32,textAlign:"center"}}>
+      <div style={{fontSize:60}}>📍</div>
+      <div style={{color:C.green,fontSize:18,fontWeight:800}}>Position confirmée !</div>
+      <div style={{color:C.text,fontSize:14}}>{form.nom||"Restaurant"}</div>
+      <div style={{color:C.muted,fontSize:13}}>{form.lat?.toFixed(5)}, {form.lng?.toFixed(5)}</div>
+      <div style={{height:16}}/>
+      <Btn onClick={()=>onSave(form)}>Enregistrer le restaurant →</Btn>
+      <div style={{height:8}}/>
+      <Btn variant="outline" onClick={()=>setLocStep("map")}>← Modifier la position</Btn>
+    </div>
+  );
+
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column"}}>
+      <div style={{padding:"52px 20px 12px",background:`linear-gradient(180deg,rgba(255,92,58,0.07),transparent)`}}>
+        <BackBtn onBack={onCancel} label="← Annuler"/>
+        <BrandBar subtitle={form.id?"Modifier":"Nouveau restaurant"}/>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"4px 16px 40px"}}>
+        <div style={{marginBottom:16}}>
+          <div style={{color:C.sub,fontSize:11,fontWeight:600,letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Icône</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>{EMOJIS.map(e=><button key={e} onClick={()=>ff("image",e)} style={{width:40,height:40,borderRadius:10,border:`2px solid ${form.image===e?C.accent:C.border}`,background:form.image===e?C.accentSoft:"transparent",fontSize:20,cursor:"pointer"}}>{e}</button>)}</div>
+        </div>
+        <FInput label="Nom du restaurant" required={true} value={form.nom} onChange={v=>ff("nom",v)} placeholder="MAESTO"/>
+        <FInput label="SIRET (optionnel)" value={form.siret} onChange={v=>ff("siret",fmtSiret(v))} placeholder="412 856 974 00028" maxLength={17}/>
+        <FInput label="Adresse" required={true} value={form.adresse} onChange={v=>ff("adresse",v)} placeholder="3 rue Filaterie"/>
+        <div style={{marginBottom:14}}>
+          <div style={{color:C.sub,fontSize:11,fontWeight:600,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Ville</div>
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+            <select value={form.ville} onChange={e=>ff("ville",e.target.value)} style={{width:"100%",background:"transparent",border:"none",outline:"none",padding:"14px",color:C.text,fontSize:15,fontFamily:"inherit",cursor:"pointer"}}>
+              {CITIES.map(c=><option key={c.id} value={c.name} style={{background:C.card}}>{c.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <FInput label="Prix moyen (€/pers)" type="number" value={form.prix_moyen} onChange={v=>ff("prix_moyen",+v)} placeholder="30"/>
+        <div style={{marginBottom:20}}>
+          <div style={{color:C.sub,fontSize:11,fontWeight:600,letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Type(s) de cuisine <span style={{color:C.red}}>*</span></div>
+          <div style={{display:"flex",flexWrap:"wrap"}}>{CUISINES.map(c=><FBadge key={c} label={c} active={form.cuisines.includes(c)} onClick={()=>toggleC(c)}/>)}</div>
+          {form.cuisines.length>0&&<div style={{color:C.muted,fontSize:11,marginTop:8}}>✓ {form.cuisines.length} sélectionné{form.cuisines.length>1?"s":""}</div>}
+        </div>
+        <div style={{background:"rgba(255,255,255,0.04)",border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 14px",marginBottom:20,display:"flex",gap:10}}>
+          <span style={{fontSize:16}}>ℹ️</span>
+          <div style={{color:C.muted,fontSize:12,lineHeight:1.5}}>Le nombre de tables disponibles se configure depuis le tableau de bord, après la création du restaurant.</div>
+        </div>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:16,padding:16,marginBottom:20}}>
+          <div style={{color:C.text,fontWeight:700,fontSize:14,marginBottom:4}}>📍 Localisation</div>
+          <div style={{color:form.lat&&form.lng?C.green:C.muted,fontSize:12,marginBottom:12}}>
+            {form.lat&&form.lng?`✓ Position définie (${form.lat.toFixed(4)}, ${form.lng.toFixed(4)})`:"Non définie — vos clients ne pourront pas vous trouver sur la carte"}
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={geolocate} disabled={locating} style={{flex:1,padding:"10px 0",borderRadius:12,border:`1px solid ${C.border}`,background:"rgba(59,130,246,0.1)",color:"#60a5fa",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+              {locating?"⏳ Localisation…":"📡 Me géolocaliser"}
+            </button>
+            <button onClick={()=>setLocStep("map")} style={{flex:1,padding:"10px 0",borderRadius:12,border:`1px solid ${C.border}`,background:C.accentSoft,color:C.accent,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+              🗺️ Placer sur carte
+            </button>
+          </div>
+        </div>
+        <Btn onClick={()=>validForm&&(form.lat&&form.lng?onSave(form):setLocStep("map"))} disabled={!validForm}>
+          {form.lat&&form.lng?"Enregistrer ✓":"Suivant : localiser →"}
+        </Btn>
+        <div style={{height:10}}/>
+        <Btn variant="outline" onClick={onCancel}>Annuler</Btn>
+      </div>
+    </div>
+  );
+}
+
+/* ══ RESTO APP (dashboard) ══════════════════════════ */
+function RestaurateurApp({user,onLogout,onHome}){
+  const [restaurants,setRestaurants]=useState(user.restaurants||[]);
+  const [activeId,setActiveId]=useState(user.restaurants?.[0]?.id||null);
+  const [timeLeft,setTimeLeft]=useState(0);
+  const [dashTab, setDashTab] = useState("dispo"); // dispo | medias
+  const [view,setView]=useState("dashboard"); // dashboard | select | add | reservations
+  const [saving,setSaving]=useState(false);
+  const [toast,setToast]=useState(null);
+  const timerRef=useRef(null);
+
+  const active=restaurants.find(r=>r.id===activeId)||restaurants[0];
+  const planInfo=PLANS.find(p=>p.id===user.plan)||PLANS[2];
+
+  // Timer local
+  useEffect(()=>{
+    if(active?.disponible&&active?.disponible_jusqu){
+      const up=()=>{
+        const l=new Date(active.disponible_jusqu)-new Date();
+        if(l<=0){
+          setTimeLeft(0);
+          updateDispoLocal({disponible:false,disponible_jusqu:null,promo_active:false,promo_jusqu:null});
+          // Mettre à jour en base aussi
+          db().from("restaurants").update({disponible:false,disponible_jusqu:null,promo_active:false,promo_jusqu:null,updated_at:new Date().toISOString()}).eq("id",active.id).then(()=>{});
+        }
+        else setTimeLeft(l);
+      };
+      up();timerRef.current=setInterval(up,1000);
+    }else setTimeLeft(0);
+    return()=>clearInterval(timerRef.current);
+  },[active?.disponible,active?.disponible_jusqu]);
+
+  const updateDispoLocal=(patch)=>setRestaurants(rs=>rs.map(r=>r.id===active?.id?{...r,...patch}:r));
+
+  const toggle=async()=>{
+    setSaving(true);
+    try{
+      if(active?.disponible){
+        await db().from("restaurants").update({disponible:false,disponible_depuis:null,disponible_jusqu:null,grande_disponibilite:false,updated_at:new Date().toISOString()}).eq("id",active.id);
+        updateDispoLocal({disponible:false,disponible_depuis:null,disponible_jusqu:null,grande_disponibilite:false});
+        setToast({message:"Restaurant masqué des clients",type:"warning"});
+      }else{
+        const now=new Date();
+        const dureeMs=(window.IOK_PARAMS.duree_dispo_min||30)*60*1000;
+        const exp=new Date(now.getTime()+dureeMs);
+        await db().from("restaurants").update({disponible:true,disponible_depuis:now.toISOString(),disponible_jusqu:exp.toISOString(),updated_at:now.toISOString()}).eq("id",active.id);
+        updateDispoLocal({disponible:true,disponible_depuis:now.toISOString(),disponible_jusqu:exp.toISOString()});
+        setToast({message:`Restaurant visible pendant ${window.IOK_PARAMS.duree_dispo_min||30} minutes !`,type:"success"});
+      }
+    }catch(e){setToast({message:"Erreur réseau",type:"error"});}
+    finally{setSaving(false);}
+  };
+
+  const togglePromo=async()=>{
+    const durée = window.IOK_PARAMS.duree_promo_min||30;
+    if(active?.promo_active){
+      updateDispoLocal({promo_active:false, promo_jusqu:null});
+      await db().from("restaurants").update({promo_active:false, promo_jusqu:null, updated_at:new Date().toISOString()}).eq("id",active.id);
+      setToast({message:"PromoFlash désactivée",type:"warning"});
+    } else {
+      const exp = new Date(Date.now()+durée*60*1000);
+      updateDispoLocal({promo_active:true, promo_jusqu:exp.toISOString()});
+      await db().from("restaurants").update({promo_active:true, promo_jusqu:exp.toISOString(), promo_pct:active.promo_pct||10, updated_at:new Date().toISOString()}).eq("id",active.id);
+      setToast({message:`⭐ PromoFlash ${active.promo_pct||10}% activée !`,type:"success"});
+    }
+  };
+
+  // updateResto : mise à jour non-bloquante (ne plante pas si colonne absente)
+  const updatePhotosLocal=(photos)=>{
+    setRestaurants(rs=>rs.map(r=>r.id===activeId?{...r,photos}:r));
+  };
+  const updateMenuLocal=(menu_url)=>{
+    setRestaurants(rs=>rs.map(r=>r.id===activeId?{...r,menu_url}:r));
+  };
+  const updateResto=async(patch)=>{
+    updateDispoLocal(patch);
+    try{
+      await db().from("restaurants").update({...patch,updated_at:new Date().toISOString()}).eq("id",active.id);
+    }catch(e){ console.warn("updateResto non-bloquant:",e.message); }
+  };
+
+  const updateTables=async(key,val)=>{
+    updateDispoLocal({[key]:val});
+    await db().from("restaurants").update({[key]:val,updated_at:new Date().toISOString()}).eq("id",active.id);
+  };
+
+  const toggleGrandeDispo=async()=>{
+    const val=!active?.grande_disponibilite;
+    updateDispoLocal({grande_disponibilite:val});
+    await db().from("restaurants").update({grande_disponibilite:val,updated_at:new Date().toISOString()}).eq("id",active.id);
+  };
+
+  const progress=active?.disponible&&active?.disponible_jusqu?(timeLeft/((window.IOK_PARAMS.duree_dispo_min||30)*60*1000))*100:0;
+
+  if(view==="select") return(
+    <PageShell onBack={()=>restaurants.length>0?setView("dashboard"):onLogout} backLabel={restaurants.length>0?"← Tableau de bord":"Déconnexion"} topSlot={<BrandBar subtitle="Mes restaurants"/>}>
+      <div style={{paddingTop:8}}>
+        {restaurants.map(r=>(
+          <div key={r.id} onClick={()=>{setActiveId(r.id);setView("dashboard");}} style={{background:r.id===activeId?C.accentSoft:C.card,border:`2px solid ${r.id===activeId?C.accent:C.border}`,borderRadius:16,padding:"14px 16px",marginBottom:12,cursor:"pointer",display:"flex",alignItems:"center",gap:12,transition:"all 0.15s"}}>
+            <div style={{fontSize:32}}>{r.image_emoji||"🍽️"}</div>
+            <div style={{flex:1}}>
+              <div style={{color:C.text,fontWeight:700,fontSize:15}}>{r.nom}</div>
+              <div style={{color:C.muted,fontSize:12}}>{r.adresse}, {r.ville}</div>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}>
+                {(()=>{
+                  const ok=r.disponible&&r.disponible_jusqu&&new Date(r.disponible_jusqu)>new Date();
+                  return(<>
+                    <span style={{width:8,height:8,borderRadius:"50%",background:ok?"#22c55e":"#6b7280",display:"inline-block"}}/>
+                    <span style={{color:ok?C.green:C.muted,fontSize:12}}>{ok?"Visible":"Masqué"}</span>
+                  </>);
+                })()}
+              </div>
+            </div>
+            {r.id===activeId&&<span style={{color:C.accent,fontSize:18}}>✓</span>}
+          </div>
+        ))}
+        <div style={{height:16}}/>
+        <button onClick={()=>setView("add")} style={{width:"100%",padding:"14px 0",borderRadius:14,border:`2px dashed ${C.accent}`,background:"transparent",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+          + Ajouter un restaurant
+        </button>
+        <div style={{height:12}}/>
+        <button onClick={onLogout} style={{width:"100%",padding:"12px 0",borderRadius:14,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
+          Se déconnecter
+        </button>
+      </div>
+    </PageShell>
+  );
+
+  if(view==="reservations") return(
+    <ReservationsView
+      user={user}
+      activeRestoId={activeId}
+      onBack={()=>setView("dashboard")}
+    />
+  );
+
+  if(view==="add") return(
+    <EditRestaurant
+      resto={{nom:"",siret:"",adresse:"",ville:"Annecy",cuisines:[],image:"🍽️",lat:null,lng:null,prix_moyen:30}}
+      onSave={async r=>{
+        try{
+          const {data:saved,error}=await db().from("restaurants").insert({
+            restaurateur_id:user.id, nom:r.nom, siret:r.siret||null,
+            adresse:r.adresse, ville:r.ville, cuisines:r.cuisines,
+            image_emoji:r.image||"🍽️", latitude:r.lat||null, longitude:r.lng||null,
+            prix_moyen:r.prix_moyen||null, nb_tables_2:0, nb_tables_4:0,
+            disponible:false, actif:true,
+          }).select().single();
+          if(error) throw new Error(error.message);
+          setRestaurants(rs=>[...rs,saved]);
+          setActiveId(saved.id);
+          setToast({message:"🎉 Restaurant ajouté avec succès !",type:"success"});
+          setView("dashboard");
+        }catch(e){
+          setToast({message:"Erreur : "+e.message,type:"error"});
+          setView("dashboard");
+        }
+      }}
+      onCancel={()=>restaurants.length>0?setView("select"):setView("dashboard")}
+    />
+  );
+
+  if(!active) return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column"}}>
+      <div style={{padding:"52px 20px 16px",background:`linear-gradient(180deg,rgba(255,92,58,0.07),transparent)`}}>
+        <BackBtn onBack={onLogout} label="Déconnexion"/>
+        <BrandBar subtitle="Mon espace"/>
+      </div>
+      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,textAlign:"center"}}>
+        <div style={{fontSize:64,marginBottom:16}}>🏪</div>
+        <div style={{color:C.text,fontSize:20,fontWeight:800,marginBottom:8}}>Aucun restaurant configuré</div>
+        <div style={{color:C.muted,fontSize:14,lineHeight:1.6,marginBottom:32}}>
+          Ajoutez votre premier restaurant<br/>pour commencer à utiliser IOK
+        </div>
+        <button onClick={()=>setView("add")} style={{width:"100%",maxWidth:320,padding:"16px 0",borderRadius:14,border:"none",background:"linear-gradient(135deg,#FF5C3A,#FF8C42)",color:"white",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:`0 4px 20px ${C.accentGlow}`}}>
+          + Ajouter mon premier restaurant
+        </button>
+        <div style={{height:12}}/>
+        <button onClick={onLogout} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 24px",color:C.muted,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>
+          Se déconnecter
+        </button>
+      </div>
+    </div>
+  );
+
+  return(
+    <PageShell onBack={dashTab==="medias"?()=>setDashTab("dispo"):onLogout} backLabel={dashTab==="medias"?"← Disponibilité":"Déconnexion"} onHome={onHome} topSlot={
+      <div>
+        {toast&&<Toast message={toast.message} type={toast.type} onClose={()=>setToast(null)}/>}
+        <BrandBar subtitle={active.nom} right={
+          <div style={{background:planInfo.id==="trial"?C.greenSoft:C.accentSoft,border:`1px solid ${planInfo.id==="trial"?"rgba(34,197,94,0.4)":C.accent}`,borderRadius:8,padding:"3px 10px",fontSize:10,color:planInfo.id==="trial"?C.green:C.accent,fontWeight:700,flexShrink:0}}>
+            {planInfo.id==="trial"?"🎁 Essai":"⚡ "+planInfo.name}
+          </div>
+        }/>
+        {restaurants.length>1&&(
+          <button onClick={()=>setView("select")} style={{marginTop:8,background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:10,padding:"6px 14px",color:C.sub,fontSize:12,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:6}}>
+            <span>{active.image_emoji}</span> {active.nom} <span style={{color:C.accent}}>▾ changer</span>
+          </button>
+        )}
+      </div>
+    }>
+      <div style={{paddingTop:4}}>
+        <div style={{color:C.muted,fontSize:12,marginBottom:12}}>{active.cuisines?.join(" · ")} · {active.ville}</div>
+
+        {/* Onglets dashboard */}
+        <div style={{display:"flex",gap:8,marginBottom:16}}>
+          {[{v:"dispo",l:"⚡ Disponibilité"},{v:"medias",l:"📸 Photos & Menu"}].map(t=>(
+            <button key={t.v} onClick={()=>setDashTab(t.v)}
+              style={{flex:1,padding:"10px 0",borderRadius:12,border:`1px solid ${dashTab===t.v?C.accent:C.border}`,background:dashTab===t.v?C.accentSoft:"transparent",color:dashTab===t.v?C.accent:C.muted,fontSize:13,fontWeight:dashTab===t.v?700:400,cursor:"pointer",fontFamily:"inherit"}}>
+              {t.l}
+            </button>
+          ))}
+        </div>
+
+        {dashTab==="medias"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:20,padding:18}}>
+              <PhotosManager restoId={active.id} photos={active.photos||[]} onUpdate={updatePhotosLocal}/>
+            </div>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:20,padding:18}}>
+              <MenuManager restoId={active.id} menuUrl={active.menu_url||""} onUpdate={updateMenuLocal}/>
+            </div>
+          </div>
+        )}
+
+        {dashTab==="dispo"&&<>
+        <div style={{color:C.muted,fontSize:12,marginBottom:0}}/>
+        <button onClick={toggle} disabled={saving} style={{width:"100%",padding:"22px 0",borderRadius:20,border:"none",background:active.disponible?"linear-gradient(135deg,#15803d,#22c55e)":"linear-gradient(135deg,#991b1b,#ef4444)",color:"white",fontSize:17,fontWeight:800,cursor:saving?"wait":"pointer",boxShadow:active.disponible?"0 6px 32px rgba(34,197,94,0.4)":"0 6px 32px rgba(239,68,68,0.3)",transition:"all 0.3s",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:12,marginBottom:14,opacity:saving?0.7:1}}>
+          <span style={{fontSize:28}}>{active.disponible?"🟢":"🔴"}</span>
+          <div style={{textAlign:"left"}}><div>{active.disponible?"Visible des clients":"Non visible"}</div><div style={{fontSize:12,opacity:0.8,fontWeight:400}}>{active.disponible?"Appuyez pour masquer":`Appuyez pour activer · ${window.IOK_PARAMS.duree_dispo_min||30} min`}</div></div>
+        </button>
+        {active.disponible&&(
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:14,marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{color:C.sub,fontSize:12}}>Expire dans</span><span style={{color:C.green,fontWeight:700,fontSize:15,fontFamily:"monospace"}}>{fmt(timeLeft)}</span></div>
+            <div style={{background:"rgba(255,255,255,0.06)",borderRadius:8,height:8,overflow:"hidden"}}><div style={{width:`${progress}%`,height:"100%",background:"linear-gradient(90deg,#22c55e,#4ade80)",transition:"width 1s linear",borderRadius:8}}/></div>
+            <div style={{color:C.muted,fontSize:11,marginTop:6}}>Repassera automatiquement rouge à expiration</div>
+          </div>
+        )}
+
+        {/* ── PromoFlash ── */}
+        <div style={{background:C.card,border:`1px solid ${active.promo_active?"rgba(34,197,94,0.4)":C.border}`,borderRadius:20,padding:18,marginBottom:14}}>
+          <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:14}}>⭐ PromoFlash</div>
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            {[5,10,20,30].map(pct=>(
+              <button key={pct} onClick={()=>updateResto({promo_pct:pct})}
+                style={{flex:1,padding:"10px 0",borderRadius:12,border:`2px solid ${(active.promo_pct||10)===pct?C.accent:C.border}`,background:(active.promo_pct||10)===pct?C.accentSoft:"transparent",color:(active.promo_pct||10)===pct?C.accent:C.muted,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                {pct}%
+              </button>
+            ))}
+          </div>
+          <div onClick={togglePromo} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",borderRadius:14,cursor:"pointer",background:active.promo_active?"rgba(34,197,94,0.08)":"rgba(255,255,255,0.03)",border:`1px solid ${active.promo_active?"rgba(34,197,94,0.4)":C.border}`,transition:"all 0.2s"}}>
+            <div>
+              <div style={{color:C.text,fontWeight:700,fontSize:14}}>{active.promo_active?`⭐ Promo ${active.promo_pct||10}% active !`:"Activer une promotion"}</div>
+              <div style={{color:C.muted,fontSize:12,marginTop:2}}>{active.promo_active?`Expire dans ${fmt(Math.max(0,new Date(active.promo_jusqu||0)-new Date()))}`:` ${active.promo_pct||10}% de réduction sur l'addition`}</div>
+            </div>
+            <div style={{width:46,height:26,borderRadius:13,background:active.promo_active?"#22c55e":"rgba(255,255,255,0.1)",position:"relative",transition:"all 0.2s",flexShrink:0}}>
+              <div style={{width:22,height:22,borderRadius:"50%",background:"white",position:"absolute",top:2,left:active.promo_active?22:2,transition:"left 0.2s",boxShadow:"0 2px 6px rgba(0,0,0,0.3)"}}/>
+            </div>
+          </div>
+        </div>
+
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:20,padding:18,marginBottom:14}}>
+          <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:14}}>Tables disponibles</div>
+          {[{key:"nb_tables_2",label:"Tables de 2 personnes",icon:"👥"},{key:"nb_tables_4",label:"Tables de 4 personnes",icon:"👨‍👩‍👧‍👦"}].map(t=>(
+            <div key={t.key} style={{marginBottom:16}}>
+              <div style={{color:C.sub,fontSize:13,marginBottom:8}}>{t.icon} {t.label}</div>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <button onClick={()=>updateTables(t.key,Math.max(0,(active[t.key]||0)-1))} style={{width:44,height:44,borderRadius:12,border:`1px solid ${C.border}`,background:C.surface,color:C.text,fontSize:22,cursor:"pointer",fontFamily:"inherit"}}>−</button>
+                <div style={{flex:1,textAlign:"center",fontSize:28,fontWeight:800,color:C.text,background:C.surface,borderRadius:12,padding:"8px 0"}}>{active[t.key]||0}</div>
+                <button onClick={()=>updateTables(t.key,(active[t.key]||0)+1)} style={{width:44,height:44,borderRadius:12,border:`1px solid ${C.border}`,background:C.surface,color:C.text,fontSize:22,cursor:"pointer",fontFamily:"inherit"}}>+</button>
+              </div>
+            </div>
+          ))}
+          <div onClick={toggleGrandeDispo} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 14px",borderRadius:14,cursor:"pointer",background:active.grande_disponibilite?C.greenSoft:"rgba(255,255,255,0.03)",border:`1px solid ${active.grande_disponibilite?"rgba(34,197,94,0.4)":C.border}`,transition:"all 0.2s"}}>
+            <div><div style={{color:C.text,fontWeight:600,fontSize:14}}>Grande disponibilité</div><div style={{color:C.muted,fontSize:12}}>Signaler beaucoup de place</div></div>
+            <div style={{width:46,height:26,borderRadius:13,background:active.grande_disponibilite?C.green:"rgba(255,255,255,0.1)",position:"relative",transition:"all 0.2s",flexShrink:0}}><div style={{width:22,height:22,borderRadius:"50%",background:"white",position:"absolute",top:2,left:active.grande_disponibilite?22:2,transition:"left 0.2s",boxShadow:"0 2px 6px rgba(0,0,0,0.3)"}}/></div>
+          </div>
+        </div>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:20,padding:18,marginBottom:14}}>
+          <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:14}}>Aperçu client</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+            {[{i:"👥",v:active.nb_tables_2||0,l:"× 2 pers."},{i:"👨‍👩‍👧‍👦",v:active.nb_tables_4||0,l:"× 4 pers."},{i:active.disponible?"🟢":"🔴",v:active.disponible?"Visible":"Masqué",l:"Statut"}].map((s,idx)=>(
+              <div key={idx} style={{background:C.surface,borderRadius:12,padding:"12px 0",textAlign:"center"}}><div style={{fontSize:22}}>{s.i}</div><div style={{color:C.text,fontWeight:800,fontSize:idx<2?22:13,marginTop:2}}>{s.v}</div><div style={{color:C.muted,fontSize:10}}>{s.l}</div></div>
+            ))}
+          </div>
+        </div>
+
+        {/* Bouton Réservations */}
+        <button onClick={()=>setView("reservations")} style={{width:"100%",padding:"14px 0",borderRadius:16,border:`1px solid rgba(59,130,246,0.3)`,background:"rgba(59,130,246,0.08)",color:"#60a5fa",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+          <span style={{fontSize:20}}>📋</span> Voir les réservations
+        </button>
+
+        {/* Fiabilité du restaurateur */}
+        {user.fiabilite_statut&&(
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:16,padding:16,marginBottom:14}}>
+            <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:12}}>Ma fiabilité</div>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <FiabiliteBadge statut={user.fiabilite_statut||"nouveau"}/>
+              <div style={{flex:1}}>
+                <div style={{color:C.muted,fontSize:12}}>
+                  {user.total_reservations||0} réservations au total
+                </div>
+                <div style={{color:C.muted,fontSize:12}}>
+                  {user.reservations_honorees||0} honorées sur les 10 dernières
+                </div>
+              </div>
+            </div>
+            {(user.total_reservations||0) < 10 && (
+              <div style={{color:C.muted,fontSize:11,marginTop:8}}>
+                ℹ️ Le statut s'affiche après 10 réservations
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{background:`linear-gradient(135deg,${planInfo.id==="trial"?"rgba(34,197,94,0.08),rgba(34,197,94,0.03)":"rgba(255,92,58,0.1),rgba(255,140,66,0.05)"})`,border:`1px solid ${planInfo.id==="trial"?"rgba(34,197,94,0.25)":"rgba(255,92,58,0.25)"}`,borderRadius:16,padding:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{color:planInfo.id==="trial"?C.green:C.accent,fontWeight:700,fontSize:13}}>{planInfo.id==="trial"?"🎁 Essai gratuit":"⚡ Plan "+planInfo.name} — actif</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{restaurants.length} restaurant{restaurants.length>1?"s":""}</div></div>
+          <div style={{color:C.text,fontSize:18,fontWeight:900}}>{planInfo.price===0?"Gratuit":`${planInfo.price}€`}<span style={{color:C.muted,fontSize:10}}>{planInfo.price>0?"/mois":""}</span></div>
+        </div>
+        </>}
+      </div>
+    </PageShell>
+  );
+}
+
+
+/* ══ QR CODE SVG NATIF ═══════════════════════════════════════ */
+function QRCode({url, size=180}){
+  // Génère un QR code simplifié via une API externe en img (data URI)
+  // On utilise l'API QR publique sans clé
+  const src = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(url)}&bgcolor=ffffff&color=000000&margin=2`;
+  return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8}}>
+      <img src={src} alt="QR Code menu" width={size} height={size}
+        style={{borderRadius:12,border:"1px solid rgba(255,255,255,0.1)",boxShadow:"0 4px 16px rgba(0,0,0,0.4)"}}
+        onError={e=>{e.target.style.display="none";}}/>
+    </div>
+  );
+}
+
+/* ══ PHOTOS MANAGER ══════════════════════════════════════════ */
+function PhotosManager({restoId, photos, onUpdate}){
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+  const MAX = 5;
+  const list = Array.isArray(photos) ? photos : [];
+
+  const compressAndUpload = async(file) => {
+    // Compresse côté client via canvas
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onload = e => { img.src = e.target.result; };
+      img.onload = () => {
+        const MAX_PX = 1200;
+        let w = img.width, h = img.height;
+        if(w > MAX_PX){ h = Math.round(h * MAX_PX / w); w = MAX_PX; }
+        if(h > MAX_PX){ w = Math.round(w * MAX_PX / h); h = MAX_PX; }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(blob => {
+          if(!blob) return reject(new Error("Compression échouée"));
+          if(blob.size > 500*1024) return reject(new Error("Image trop lourde (max 500ko après compression)"));
+          resolve(blob);
+        }, "image/jpeg", 0.82);
+      };
+      img.onerror = () => reject(new Error("Image invalide"));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFiles = async(files) => {
+    setError(""); setUploading(true);
+    try{
+      let current = [...list];
+      for(const file of Array.from(files)){
+        if(current.length >= MAX){ setError(`Maximum ${MAX} photos`); break; }
+        if(!file.type.startsWith("image/")) continue;
+        const blob = await compressAndUpload(file);
+        const path = `${restoId}/${Date.now()}_${file.name.replace(/[^a-z0-9.]/gi,"_")}`;
+        const {error:upErr} = await db().storage.from("restaurant-photos").upload(path, blob, {contentType:"image/jpeg",upsert:false});
+        if(upErr) throw new Error(upErr.message);
+        const {data:{publicUrl}} = db().storage.from("restaurant-photos").getPublicUrl(path);
+        current.push({url:publicUrl, path, ordre:current.length});
+      }
+      // Réindexer l'ordre
+      current = current.map((p,i)=>({...p,ordre:i}));
+      await db().from("restaurants").update({photos:current, updated_at:new Date().toISOString()}).eq("id",restoId);
+      onUpdate(current);
+    }catch(e){ setError(e.message); }
+    setUploading(false);
+  };
+
+  const remove = async(idx) => {
+    if(!window.confirm("Supprimer cette photo ?")) return;
+    setUploading(true);
+    try{
+      const p = list[idx];
+      if(p.path) await db().storage.from("restaurant-photos").remove([p.path]);
+      const next = list.filter((_,i)=>i!==idx).map((x,i)=>({...x,ordre:i}));
+      await db().from("restaurants").update({photos:next, updated_at:new Date().toISOString()}).eq("id",restoId);
+      onUpdate(next);
+    }catch(e){ setError(e.message); }
+    setUploading(false);
+  };
+
+  const move = async(idx, dir) => {
+    const next = [...list];
+    const swap = idx + dir;
+    if(swap < 0 || swap >= next.length) return;
+    [next[idx], next[swap]] = [next[swap], next[idx]];
+    const reindexed = next.map((x,i)=>({...x,ordre:i}));
+    await db().from("restaurants").update({photos:reindexed, updated_at:new Date().toISOString()}).eq("id",restoId);
+    onUpdate(reindexed);
+  };
+
+  return(
+    <div>
+      <div style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:12}}>
+        📸 Photos ({list.length}/{MAX})
+      </div>
+
+      {/* Grille photos */}
+      {list.length > 0 && (
+        <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+          {list.map((p,i)=>(
+            <div key={p.url} style={{display:"flex",alignItems:"center",gap:10,background:C.surface,borderRadius:12,padding:8,border:`1px solid ${C.border}`}}>
+              <img src={p.url} alt="" onError={e=>e.target.style.display="none"} style={{width:72,height:52,objectFit:"cover",borderRadius:8,flexShrink:0}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{color:C.sub,fontSize:11}}>{i===0?"⭐ Photo principale":"Photo "+(i+1)}</div>
+              </div>
+              {/* Boutons ordre */}
+              <div style={{display:"flex",gap:4}}>
+                <button onClick={()=>move(i,-1)} disabled={i===0||uploading}
+                  style={{width:28,height:28,borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.sub,cursor:"pointer",fontFamily:"inherit",fontSize:14,opacity:i===0?0.3:1}}>↑</button>
+                <button onClick={()=>move(i,1)} disabled={i===list.length-1||uploading}
+                  style={{width:28,height:28,borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.sub,cursor:"pointer",fontFamily:"inherit",fontSize:14,opacity:i===list.length-1?0.3:1}}>↓</button>
+                <button onClick={()=>remove(i)} disabled={uploading}
+                  style={{width:28,height:28,borderRadius:8,border:"1px solid rgba(239,68,68,0.3)",background:"rgba(239,68,68,0.08)",color:"#ef4444",cursor:"pointer",fontFamily:"inherit",fontSize:14}}>✕</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Zone upload */}
+      {list.length < MAX && (
+        <label style={{display:"block",border:`2px dashed ${C.accent}`,borderRadius:14,padding:"20px 0",textAlign:"center",cursor:"pointer",background:"rgba(255,92,58,0.04)",marginBottom:10}}>
+          <input type="file" accept="image/*" multiple style={{display:"none"}}
+            onChange={e=>handleFiles(e.target.files)}/>
+          <div style={{fontSize:28,marginBottom:6}}>📷</div>
+          <div style={{color:C.accent,fontWeight:700,fontSize:13}}>
+            {uploading?"Envoi en cours…":"Ajouter des photos"}
+          </div>
+          <div style={{color:C.muted,fontSize:11,marginTop:4}}>JPG, PNG · max 500ko · {MAX-list.length} emplacement{MAX-list.length>1?"s":""} restant{MAX-list.length>1?"s":""}</div>
+        </label>
+      )}
+
+      {error&&<div style={{color:"#ef4444",fontSize:12,marginTop:6}}>⚠️ {error}</div>}
+      {uploading&&<div style={{color:C.accent,fontSize:12,marginTop:6}}>⏳ Traitement en cours…</div>}
+    </div>
+  );
+}
+
+/* ══ MENU MANAGER ════════════════════════════════════════════ */
+function MenuManager({restoId, menuUrl, onUpdate}){
+  const [url, setUrl] = useState(menuUrl||"");
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  const [mode, setMode] = useState(menuUrl?"url":"url"); // url | file
+
+  const saveUrl = async() => {
+    setError(""); setUploading(true);
+    try{
+      await db().from("restaurants").update({menu_url:url||null, updated_at:new Date().toISOString()}).eq("id",restoId);
+      onUpdate(url||null);
+      setSaved(true); setTimeout(()=>setSaved(false),2000);
+    }catch(e){ setError(e.message); }
+    setUploading(false);
+  };
+
+  const uploadFile = async(f) => {
+    setError(""); setUploading(true);
+    try{
+      const path = `${restoId}/menu_${Date.now()}_${f.name.replace(/[^a-z0-9.]/gi,"_")}`;
+      const {error:upErr} = await db().storage.from("restaurant-menus").upload(path, f, {contentType:f.type, upsert:true});
+      if(upErr) throw new Error(upErr.message);
+      const {data:{publicUrl}} = db().storage.from("restaurant-menus").getPublicUrl(path);
+      setUrl(publicUrl);
+      await db().from("restaurants").update({menu_url:publicUrl, updated_at:new Date().toISOString()}).eq("id",restoId);
+      onUpdate(publicUrl);
+      setSaved(true); setTimeout(()=>setSaved(false),2000);
+    }catch(e){ setError(e.message); }
+    setUploading(false);
+  };
+
+  return(
+    <div>
+      <div style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:12}}>
+        📋 Menu du restaurant
+      </div>
+
+      {/* Sélecteur mode */}
+      <div style={{display:"flex",gap:8,marginBottom:14}}>
+        {[{v:"url",l:"🔗 URL / lien"},{v:"file",l:"📄 Fichier PDF/image"}].map(m=>(
+          <button key={m.v} onClick={()=>setMode(m.v)}
+            style={{flex:1,padding:"8px 0",borderRadius:10,border:`1px solid ${mode===m.v?C.accent:C.border}`,background:mode===m.v?C.accentSoft:"transparent",color:mode===m.v?C.accent:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+            {m.l}
+          </button>
+        ))}
+      </div>
+
+      {mode==="url"&&(
+        <div>
+          <div style={{display:"flex",gap:8,marginBottom:12}}>
+            <input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://votre-menu.fr ou lien QR..."
+              style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.text,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+            <button onClick={saveUrl} disabled={uploading}
+              style={{padding:"0 16px",borderRadius:10,border:"none",background:C.accent,color:"white",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
+              {saved?"✓ OK":uploading?"…":"Sauver"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode==="file"&&(
+        <label style={{display:"block",border:`2px dashed ${C.accent}`,borderRadius:14,padding:"20px 0",textAlign:"center",cursor:"pointer",background:"rgba(255,92,58,0.04)",marginBottom:12}}>
+          <input type="file" accept=".pdf,image/*" style={{display:"none"}}
+            onChange={e=>e.target.files[0]&&uploadFile(e.target.files[0])}/>
+          <div style={{fontSize:28,marginBottom:6}}>📄</div>
+          <div style={{color:C.accent,fontWeight:700,fontSize:13}}>{uploading?"Envoi en cours…":"Charger PDF ou image du menu"}</div>
+          <div style={{color:C.muted,fontSize:11,marginTop:4}}>PDF, JPG, PNG</div>
+        </label>
+      )}
+
+      {error&&<div style={{color:"#ef4444",fontSize:12,marginBottom:8}}>⚠️ {error}</div>}
+
+      {/* Aperçu QR Code si URL présente */}
+      {url&&(
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:16,textAlign:"center"}}>
+          <div style={{color:C.sub,fontSize:11,marginBottom:10}}>QR Code généré — affiché sur la fiche client</div>
+          <QRCode url={url} size={160}/>
+          <div style={{color:C.muted,fontSize:11,marginTop:10,wordBreak:"break-all"}}>{url.slice(0,60)}{url.length>60?"…":""}</div>
+          <button onClick={async()=>{
+            if(!window.confirm("Supprimer le menu ?")) return;
+            await db().from("restaurants").update({menu_url:null,updated_at:new Date().toISOString()}).eq("id",restoId);
+            setUrl(""); onUpdate(null);
+          }} style={{marginTop:10,padding:"6px 16px",borderRadius:8,border:"1px solid rgba(239,68,68,0.3)",background:"transparent",color:"#ef4444",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+            Supprimer le menu
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══ RESERVATIONS VIEW ══════════════════════════════ */
+function ReservationsView({user, activeRestoId, onBack}){
+  const [reservations, setReservations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("en_attente"); // all | today | en_attente
+  const [toastMsg, setToastMsg] = useState(null);
+
+  useEffect(()=>{
+    if(toastMsg){ const t=setTimeout(()=>setToastMsg(null),2500); return()=>clearTimeout(t); }
+  },[toastMsg]);
+
+  useEffect(()=>{
+    const load = async()=>{
+      setLoading(true);
+      try{
+        let query = db()
+          .from("reservations")
+          .select("*, clients(prenom, nom, fiabilite_statut, total_reservations)")
+          .eq("restaurant_id", activeRestoId)
+          .order("created_at", {ascending: false});
+
+        if(filter === "today"){
+          const today = new Date();
+          today.setHours(0,0,0,0);
+          query = query.gte("created_at", today.toISOString());
+        } else if(filter === "en_attente"){
+          query = query.in("statut",["en_attente","confirmee"]);
+        }
+
+        const {data, error} = await query.limit(50);
+        if(error) console.error("Reservations error:", error);
+        if(data) {
+          setReservations(data);
+          // Valide automatiquement les réservations expirées
+          await autoValiderExpirees(data);
+        }
+      }catch(e){ console.error(e); }
+      setLoading(false);
+    };
+    load();
+    // Rafraîchit toutes les 30s
+    const t = setInterval(load, 30000);
+    return ()=>clearInterval(t);
+  },[activeRestoId, filter]);
+
+  const getStatutStyle = (statut) => {
+    if(statut==="en_attente")         return {bg:"rgba(34,197,94,0.12)",  color:"#22c55e", label:"⏳ En attente"};
+    if(statut==="validee")            return {bg:"rgba(107,114,128,0.12)",color:"#6b7280", label:"✓ Validée"};
+    if(statut==="annulee_client")     return {bg:"rgba(239,68,68,0.12)",  color:"#ef4444", label:"✗ Annulée client"};
+    if(statut==="non_honoree_client") return {bg:"rgba(239,68,68,0.12)",  color:"#ef4444", label:"👻 Non honorée (client)"};
+    if(statut==="non_honoree_resto")  return {bg:"rgba(249,115,22,0.12)", color:"#f97316", label:"⚠️ Non honorée (resto)"};
+    // Anciens statuts pour compatibilité affichage
+    if(statut==="confirmee")     return {bg:"rgba(34,197,94,0.12)",  color:"#22c55e", label:"⏳ En attente"};
+    if(statut==="annulee")       return {bg:"rgba(239,68,68,0.12)",  color:"#ef4444", label:"✗ Annulée"};
+    return {bg:"rgba(34,197,94,0.12)",color:"#22c55e",label:"⏳ En attente"};
+  };
+
+  // Vérifie si une résa est dans la fenêtre de signalement (< 2h)
+  const peutSignaler = (r) => {
+    const age = (Date.now() - new Date(r.created_at).getTime()) / 60000; // en minutes
+    return age < 120;
+  };
+
+  // Validation automatique des réservations expirées
+  const autoValiderExpirees = async(liste) => {
+    const dureeMin = window.IOK_PARAMS.duree_resa_min||30;
+    const aValider = liste.filter(r => {
+      if(r.statut !== "en_attente" && r.statut !== "confirmee") return false;
+      const age = (Date.now() - new Date(r.created_at).getTime()) / 60000;
+      return age >= dureeMin;
+    });
+    for(const r of aValider){
+      await db().from("reservations").update({statut:"validee"}).eq("id",r.id);
+    }
+    if(aValider.length > 0){
+      setReservations(rs => rs.map(r => {
+        if(aValider.find(v=>v.id===r.id)) return {...r, statut:"validee"};
+        return r;
+      }));
+    }
+  };
+
+  const formatDate = (iso) => {
+    const d = new Date(iso);
+    const today = new Date();
+    const isToday = d.toDateString() === today.toDateString();
+    if(isToday) return "Aujourd'hui " + d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+    return d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit"}) + " " + d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+  };
+
+  const tableLabel = (r) => {
+    if(r.table_type==="2") return "👥 Table 2 pers.";
+    if(r.table_type==="4") return "👨‍👩‍👧‍👦 Table 4 pers.";
+    return `${r.nb_personnes} pers.`;
+  };
+
+  return(
+    <PageShell onBack={onBack} backLabel="← Tableau de bord" topSlot={<BrandBar subtitle="Réservations"/>}>
+      {toastMsg&&<Toast message={toastMsg} type="success" onClose={()=>setToastMsg(null)}/>}
+      {/* Filtres */}
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        {[{v:"all",l:"Toutes"},{v:"today",l:"Aujourd'hui"},{v:"en_attente",l:"En attente"}].map(f=>(
+          <button key={f.v} onClick={()=>setFilter(f.v)} style={{flex:1,padding:"8px 0",borderRadius:10,border:`1px solid ${filter===f.v?C.accent:C.border}`,background:filter===f.v?C.accentSoft:"transparent",color:filter===f.v?C.accent:C.muted,fontSize:12,fontWeight:filter===f.v?700:400,cursor:"pointer",fontFamily:"inherit"}}>
+            {f.l}
+          </button>
+        ))}
+      </div>
+
+      {loading&&(
+        <div style={{textAlign:"center",padding:"40px 0",color:C.muted}}>
+          <div style={{fontSize:24,marginBottom:8}}>⚡</div>
+          <div style={{fontSize:13}}>Chargement...</div>
+        </div>
+      )}
+
+      {!loading&&reservations.length===0&&(
+        <div style={{textAlign:"center",padding:"40px 0",color:C.muted}}>
+          <div style={{fontSize:40,marginBottom:12}}>📋</div>
+          <div style={{fontSize:14}}>Aucune réservation</div>
+          <div style={{fontSize:12,marginTop:6}}>Les réservations apparaîtront ici</div>
+        </div>
+      )}
+
+      {!loading&&reservations.map(r=>{
+        const s = getStatutStyle(r.statut);
+        const enCours = r.statut==="en_attente"||r.statut==="confirmee";
+        return(
+          <div key={r.id} style={{background:C.card,border:`2px solid ${enCours?"rgba(34,197,94,0.5)":C.border}`,borderRadius:14,padding:"12px 14px",marginBottom:8}}>
+            {/* Ligne 1 : nom + fiabilité + statut */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+              <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+                <span style={{color:C.text,fontWeight:700,fontSize:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                  {r.client_prenom} {r.client_nom}
+                </span>
+                <FiabiliteBadge statut={r.clients?.fiabilite_statut||r.client_fiabilite||"nouveau"} small={true}/>
+              </div>
+              <div style={{background:s.bg,color:s.color,fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0,marginLeft:6}}>
+                {s.label}
+              </div>
+            </div>
+            {/* Ligne 2 : date · table · tel · promo */}
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <span style={{color:C.muted,fontSize:12}}>{formatDate(r.created_at)}</span>
+              <span style={{color:C.border}}>·</span>
+              <span style={{color:C.sub,fontSize:12}}>{tableLabel(r)}</span>
+              <span style={{color:C.border}}>·</span>
+              <span style={{color:C.sub,fontSize:12}}>{r.client_telephone}</span>
+              {r.promo_pct>0&&<span style={{color:"#22c55e",fontSize:11,fontWeight:700}}>⭐ -{r.promo_pct}%</span>}
+            </div>
+            {/* Bouton signaler absent uniquement si en cours et < 2h */}
+            {enCours&&peutSignaler(r)&&(
+              <button onClick={async()=>{
+                if(!window.confirm("Signaler l'absence de ce client ?")) return;
+                await db().from("reservations").update({statut:"non_honoree_client"}).eq("id",r.id);
+                setReservations(rs=>rs.map(x=>x.id===r.id?{...x,statut:"non_honoree_client"}:x));
+                setToastMsg("⚠️ Absence signalée — fiabilité client mise à jour");
+              }} style={{marginTop:8,width:"100%",padding:"7px 0",borderRadius:8,border:"1px solid rgba(239,68,68,0.3)",background:"rgba(239,68,68,0.07)",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                👻 Signaler absence client
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </PageShell>
+  );
+}
+
+/* ══ CARROUSEL PHOTOS ════════════════════════════════════════ */
+function PhotoCarousel({pics, emoji, nom, ok, tLeft, hasPromo, promoPct, onClose}){
+  const [pIdx, setPIdx] = useState(0);
+  return(
+    <div style={{height:160,background:bannerColor(nom),position:"relative",overflow:"hidden"}}>
+      {pics&&pics.length>0
+        ?<>
+          <img src={pics[pIdx].url} alt="" onError={e=>{e.target.style.display="none";}} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+          {pics.length>1&&<>
+            <button onClick={e=>{e.stopPropagation();setPIdx(i=>Math.max(0,i-1));}}
+              style={{position:"absolute",left:8,top:"50%",transform:"translateY(-50%)",width:28,height:28,borderRadius:"50%",background:"rgba(255,255,255,0.85)",border:"none",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",opacity:pIdx===0?0.3:1}}>‹</button>
+            <button onClick={e=>{e.stopPropagation();setPIdx(i=>Math.min(pics.length-1,i+1));}}
+              style={{position:"absolute",right:44,top:"50%",transform:"translateY(-50%)",width:28,height:28,borderRadius:"50%",background:"rgba(255,255,255,0.85)",border:"none",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",opacity:pIdx===pics.length-1?0.3:1}}>›</button>
+            <div style={{position:"absolute",bottom:8,left:"50%",transform:"translateX(-50%)",display:"flex",gap:4}}>
+              {pics.map((_,i)=><div key={i} style={{width:i===pIdx?16:6,height:6,borderRadius:3,background:i===pIdx?"white":"rgba(255,255,255,0.5)",transition:"width 0.2s"}}/>)}
+            </div>
+          </>}
+        </>
+        :<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:56}}>{emoji||"🍽️"}</span></div>
+      }
+      <button onClick={onClose}
+        style={{position:"absolute",top:12,right:12,width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,0.9)",border:"none",cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 8px rgba(0,0,0,0.15)"}}>✕</button>
+      {ok&&<div style={{position:"absolute",top:12,left:12,background:"#22C55E",color:"white",fontSize:11,fontWeight:800,padding:"4px 10px",borderRadius:20}}>🟢 {fmt(tLeft)}</div>}
+      {hasPromo&&<div style={{position:"absolute",bottom:pics&&pics.length>1?24:12,right:12,background:CL.accent,color:"white",fontSize:13,fontWeight:900,padding:"5px 12px",borderRadius:20,animation:"promoPulse 1.5s ease-in-out infinite"}}>⭐ -{promoPct||10}%</div>}
+    </div>
+  );
+}
+
+/* ══ CLIENT SEARCH ══════════════════════════════════ */
+/* ══ LEAFLET MAP COLORED (3 couleurs) ══════════════ */
+function LeafletMapColored({restaurants,selected,onSelect,city,height=260,loading,userLocation}){
+  const mapRef=useRef(null);
+  const instanceRef=useRef(null);
+  const markersRef=useRef([]);
+  const cityObj=CITIES.find(c=>c.id===city)||CITIES[0];
+
+  const buildIcon=(r,isSel)=>{
+    const isOsm=!r._iok;
+    const ok=r._iok&&r.disponible&&r.disponible_jusqu&&new Date(r.disponible_jusqu)>new Date();
+    const promoOk=r.promo_active&&r.promo_jusqu&&new Date(r.promo_jusqu)>new Date();
+    // Vérifie paramètre promo_liee_dispo
+    const promoVisible = promoOk && (!window.IOK_PARAMS.promo_liee_dispo || ok);
+
+    let color, ringColor;
+    if(!r._iok){
+      color="#9ca3af"; ringColor="rgba(156,163,175,0.3)";
+    } else if(ok){
+      color="#22c55e"; ringColor="rgba(34,197,94,0.4)";
+    } else {
+      color="#ef4444"; ringColor="rgba(239,68,68,0.3)";
+    }
+
+    const size=isSel?32:22;
+    const ring=ok?`<div style="position:absolute;inset:-5px;border-radius:50%;border:2px solid ${ringColor};opacity:0.6;animation:mapPulse 2s ease-in-out infinite;"></div>`:"";
+    // Étoile promo clignotante
+    const promoBadge=promoVisible?`<div style="position:absolute;top:-6px;right:-6px;background:#22c55e;color:white;font-size:8px;font-weight:800;padding:2px 4px;border-radius:6px;animation:promoPulse 1.5s ease-in-out infinite;line-height:1.2;">-${r.promo_pct||10}%</div>`:"";
+    const star=r._plan==="premium"&&!promoVisible?`<div style="position:absolute;top:-4px;right:-4px;font-size:8px;line-height:1;">⭐</div>`:"";
+
+    return window.L.divIcon({
+      html:`<div style="position:relative;width:${size}px;height:${size}px;">${ring}<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:${isSel?3:2}px solid ${isOsm?"rgba(255,255,255,0.4)":"white"};box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;font-size:${isSel?13:9}px;opacity:${isOsm?0.7:1};">${r.image_emoji||"🍽️"}</div>${star}${promoBadge}</div>`,
+      className:"",iconSize:[size,size],iconAnchor:[size/2,size/2],
+    });
+  };
+
+  useEffect(()=>{
+    if(!mapRef.current||instanceRef.current) return;
+    const L=window.L;
+    const cLat=userLocation?.lat||cityObj.lat;
+    const cLng=userLocation?.lng||cityObj.lng;
+    const map=L.map(mapRef.current,{center:[cLat,cLng],zoom:cityObj.zoom,zoomControl:true,attributionControl:true});
+    window._iokMap=map; // ref globale pour géoloc
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
+    // Marqueur vous
+    L.marker([cLat,cLng],{icon:L.divIcon({html:`<div style="width:18px;height:18px;border-radius:50%;background:#3b82f6;border:3px solid white;box-shadow:0 0 0 6px rgba(59,130,246,0.25);"></div>`,className:"",iconSize:[18,18],iconAnchor:[9,9]})}).addTo(map).bindPopup("📍 Vous êtes ici",{className:"iok-popup"});
+    instanceRef.current=map;
+    // CSS animation pour les halos
+    if(!document.getElementById("map-pulse-style")){
+      const s=document.createElement("style");
+      s.id="map-pulse-style";
+      s.textContent=`@keyframes mapPulse{0%,100%{transform:scale(1);opacity:0.5}50%{transform:scale(1.4);opacity:0.2}}`;
+      document.head.appendChild(s);
+    }
+    setTimeout(()=>map.invalidateSize(),200);
+    return()=>{map.remove();instanceRef.current=null;};
+  },[]);
+
+  useEffect(()=>{if(instanceRef.current)instanceRef.current.setView([cityObj.lat,cityObj.lng],cityObj.zoom);},[city]);
+
+  useEffect(()=>{
+    const map=instanceRef.current;
+    if(!map||!window.L) return;
+    markersRef.current.forEach(m=>map.removeLayer(m));
+    markersRef.current=[];
+    (restaurants||[]).forEach(r=>{
+      if(!r.latitude||!r.longitude) return;
+      const isSel=selected?.id===r.id;
+      const ok=r._iok&&r.disponible&&r.disponible_jusqu&&new Date(r.disponible_jusqu)>new Date();
+      const m=window.L.marker([r.latitude,r.longitude],{icon:buildIcon(r,isSel)});
+      m.addTo(map);
+      const statusLine=r._iok
+        ?(ok?`<span style="color:#4ade80;font-weight:700;">${Math.floor(Math.max(0,new Date(r.disponible_jusqu)-new Date())/60000)}min restant</span>`:`<span style="color:#6b7280;">Indisponible</span>`)
+        :`<span style="color:#ef4444;font-size:11px;">Non partenaire IOK</span>`;
+      const cuisineStr=(r.cuisines||[]).slice(0,2).join(", ")||"Restaurant";
+      m.bindPopup(`<div><b style="font-size:13px;">${r.image_emoji||"🍽️"} ${r.nom}</b><br/><span style="color:#9CA3AF;font-size:11px;">${cuisineStr}${r.prix_moyen?" · ~"+r.prix_moyen+"€":""}</span><br/>${statusLine}</div>`,{className:"iok-popup",maxWidth:200});
+      m.on("click",()=>{if(onSelect)onSelect(r);});
+      markersRef.current.push(m);
+    });
+  },[restaurants,selected]);
+
+  return(
+    <div style={{borderRadius:20,overflow:"hidden",border:`1px solid ${C.border}`,marginBottom:14,position:"relative"}}>
+      <div ref={mapRef} style={{height,width:"100%",display:"block"}}/>
+      {loading&&(
+        <div style={{position:"absolute",bottom:40,right:10,background:"rgba(12,13,15,0.85)",borderRadius:8,padding:"4px 10px",fontSize:11,color:C.muted,zIndex:1000}}>
+          ⏳ Chargement restaurants…
+        </div>
+      )}
+    </div>
+  );
+}
+
+function bannerColor(nom){
+  let h=0; for(let i=0;i<(nom||"").length;i++) h=(h*31+nom.charCodeAt(i))>>>0;
+  const hues=[12,24,36,180,200,220,260,280,320];
+  return `hsl(${hues[h%hues.length]},55%,88%)`;
+}
+
+/* ══ CLIENT DASHBOARD — Mes réservations ════════════════════ */
+function ClientDashboard({onBack, onHome}){
+  const [authStep, setAuthStep] = useState("phone"); // phone | otp | dashboard
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState(["","","","","",""]);
+  const [clientData, setClientData] = useState(null);
+  const [reservations, setReservations] = useState([]);
+  const [tab, setTab] = useState("recent"); // recent | history
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [tick, setTick] = useState(0);
+  const [indicatif, setIndicatif] = useState("+33");
+  const otpRefs = useRef([]);
+
+  // Tick toutes les secondes pour les comptes à rebours
+  useEffect(()=>{
+    const t = setInterval(()=>setTick(x=>x+1), 1000);
+    return ()=>clearInterval(t);
+  },[]);
+
+  const handleOtpInput=(i,v)=>{
+    const d=v.replace(/\D/g,"").slice(-1);
+    const nc=[...otp]; nc[i]=d; setOtp(nc);
+    if(d&&i<5) otpRefs.current[i+1]?.focus();
+  };
+
+  // Envoi OTP
+  const sendOTP = async()=>{
+    setError(""); setLoading(true);
+    try{
+      const tel = indicatif+phone.replace(/\s/g,"").replace(/^0/,"");
+      const {data:client} = await db().from("clients").select("*").eq("telephone",tel).maybeSingle();
+      if(!client) throw new Error("Numéro introuvable. Créez un compte en réservant.");
+      const otpCode = TEST_MODE()?"123456":String(Math.floor(100000+Math.random()*900000));
+      await db().from("clients").update({otp_code:otpCode, otp_expires_at:new Date(Date.now()+5*60*1000).toISOString()}).eq("id",client.id);
+      console.log("OTP client (test):", otpCode);
+      setClientData({...client, _otp:otpCode});
+      setAuthStep("otp");
+    }catch(e){ setError(e.message); }
+    finally{ setLoading(false); }
+  };
+
+  // Vérification OTP
+  const verifyOTP = async()=>{
+    setError(""); setLoading(true);
+    try{
+      const entered = otp.join("");
+      if(TEST_MODE()){
+        if(entered!=="123456") throw new Error("Code invalide. En mode test : 123456");
+      } else {
+        if(entered!==clientData._otp) throw new Error("Code invalide.");
+        if(new Date()>new Date(clientData.otp_expires_at)) throw new Error("Code expiré.");
+      }
+      await db().from("clients").update({derniere_connexion:new Date().toISOString(), otp_code:null}).eq("id",clientData.id);
+      setAuthStep("dashboard");
+      loadReservations(clientData.id);
+    }catch(e){ setError(e.message); }
+    finally{ setLoading(false); }
+  };
+
+  // Charge les réservations
+  // Validation auto des réservations expirées — défini AVANT loadReservations
+  const autoValiderClientExpirees = async(liste) => {
+    const dureeMin = window.IOK_PARAMS.duree_resa_min||30;
+    const aValider = liste.filter(r => {
+      if(r.statut !== "en_attente" && r.statut !== "confirmee") return false;
+      const age = (Date.now() - new Date(r.created_at).getTime()) / 60000;
+      return age >= dureeMin;
+    });
+    for(const r of aValider){
+      await db().from("reservations").update({statut:"validee"}).eq("id",r.id);
+    }
+    if(aValider.length > 0){
+      setReservations(rs => rs.map(r => {
+        if(aValider.find(v=>v.id===r.id)) return {...r, statut:"validee"};
+        return r;
+      }));
+    }
+  };
+
+  const loadReservations = async(clientId)=>{
+    setLoading(true);
+    try{
+      const {data} = await db().from("reservations")
+        .select("*, restaurants(nom, adresse, telephone, image_emoji, ville)")
+        .eq("client_id", clientId)
+        .order("created_at", {ascending:false});
+      const d = data||[];
+      setReservations(d);
+      await autoValiderClientExpirees(d);
+    }catch(e){ console.error(e); }
+    setLoading(false);
+  };
+
+  // Annuler une réservation
+  const cancelResa = async(resa)=>{
+    if(!window.confirm("Annuler cette réservation ?")) return;
+    // Remet la table disponible
+    const tableKey = resa.table_type==="2"?"nb_tables_2":"nb_tables_4";
+    const {data:resto} = await db().from("restaurants").select(tableKey).eq("id",resa.restaurant_id).single();
+    if(resto) await db().from("restaurants").update({[tableKey]:(resto[tableKey]||0)+1}).eq("id",resa.restaurant_id);
+    await db().from("reservations").update({statut:"annulee_client"}).eq("id",resa.id);
+    setReservations(rs=>rs.map(r=>r.id===resa.id?{...r,statut:"annulee_client"}:r));
+  };
+
+  const signalerNonHonore = async(resa)=>{
+    if(!window.confirm("Signaler que le restaurant ne peut pas vous accueillir ?")) return;
+    await db().from("reservations").update({statut:"non_honoree_resto"}).eq("id",resa.id);
+    setReservations(rs=>rs.map(r=>r.id===resa.id?{...r,statut:"non_honoree_resto"}:r));
+  };
+
+  // Calcule le temps restant et la couleur
+  const getTimer = (resa)=>{
+    if(resa.statut!=="en_attente"&&resa.statut!=="confirmee") return null;
+    const created = new Date(resa.created_at);
+    const duree = (window.IOK_PARAMS.duree_resa_min||30) * 60 * 1000;
+    const alerteMs = (window.IOK_PARAMS.alerte_orange_min||10) * 60 * 1000;
+    const elapsed = Date.now() - created.getTime();
+    const remaining = duree - elapsed;
+    if(remaining <= 0) return {ms:0, color:"#ef4444", label:"Expiré"};
+    const color = remaining < alerteMs ? "#f97316" : "#22c55e";
+    return {ms:remaining, color, label:fmt(remaining)};
+  };
+
+  // Filtre les réservations
+  const recent = reservations.filter(r=>{
+    const d = new Date(r.created_at);
+    return Date.now()-d.getTime() < 24*60*60*1000;
+  });
+  const history = reservations.filter(r=>{
+    const d = new Date(r.created_at);
+    return Date.now()-d.getTime() >= 24*60*60*1000;
+  });
+
+  const displayed = tab==="recent" ? recent : history;
+
+  // Statut label + couleur
+  const getStatutStyle=(s)=>({
+    en_attente:          {color:"#22c55e", label:"⏳ En attente"},
+    validee:             {color:"#6b7280", label:"✓ Validée"},
+    annulee_client:      {color:"#ef4444", label:"✗ Annulée"},
+    non_honoree_client:  {color:"#ef4444", label:"👻 Absent"},
+    non_honoree_resto:   {color:"#f97316", label:"⚠️ Non honorée (resto)"},
+    // Anciens statuts pour compatibilité
+    confirmee:           {color:"#22c55e", label:"⏳ En attente"},
+    annulee:             {color:"#ef4444", label:"✗ Annulée"},
+  }[s]||{color:C.muted, label:s||"En attente"});
+
+  // Peut signaler non-honoré par resto : < 2h après résa
+  const peutSignalerResto = (r) => {
+    if(r.statut !== "en_attente" && r.statut !== "confirmee") return false;
+    const age = (Date.now() - new Date(r.created_at).getTime()) / 60000;
+    return age < 120;
+  };
+
+  // ── Écran saisie téléphone ─────────────────────────────────
+  if(authStep==="phone") return(
+    <ClientPageShell onBack={onBack} backLabel="Accueil">
+      <div style={{padding:"32px 20px", textAlign:"center"}}>
+        <div style={{fontSize:48, marginBottom:16}}>👤</div>
+        <div style={{color:CL.text, fontSize:26, fontWeight:900, marginBottom:6, letterSpacing:-0.5}}>Mon compte</div>
+        <div style={{color:CL.muted, fontSize:14, marginBottom:28, lineHeight:1.6}}>Entrez votre numéro pour voir<br/>vos réservations</div>
+        <TelInput label="Téléphone mobile" value={phone} onChange={setPhone}
+          indicatif={indicatif} onIndicatifChange={setIndicatif} required={true}/>
+        {TEST_MODE()&&<div style={{background:"#FFF9E6",borderRadius:10,padding:"8px 14px",marginBottom:14,color:"#B8860B",fontSize:12}}>
+          🧪 Mode test — code OTP fixe : <strong>123456</strong>
+        </div>}
+        {error&&<div style={{background:"#FFF0F0",borderRadius:10,padding:"10px 14px",marginBottom:14,color:CL.accent,fontSize:13}}>⚠️ {error}</div>}
+        <ClientBtn onClick={sendOTP} disabled={phone.replace(/\s/g,"").length<9} loading={loading}>
+          Recevoir mon code →
+        </ClientBtn>
+      </div>
+    </ClientPageShell>
+  );
+
+  // ── Écran OTP ──────────────────────────────────────────────
+  if(authStep==="otp") return(
+    <ClientPageShell onBack={()=>{setAuthStep("phone");setError("");setOtp(["","","","","",""]);}} backLabel="Modifier">
+      <div style={{padding:"32px 20px", textAlign:"center"}}>
+        <div style={{fontSize:48, marginBottom:12}}>💬</div>
+        <div style={{color:CL.text, fontSize:26, fontWeight:900, marginBottom:6, letterSpacing:-0.5}}>Code envoyé !</div>
+        {clientData?.prenom&&<div style={{color:"#22C55E", fontSize:14, fontWeight:700, marginBottom:24}}>Bonjour {clientData.prenom} 👋</div>}
+        <div style={{display:"flex", gap:10, justifyContent:"center", marginBottom:28}}>
+          {otp.map((d,i)=>(
+            <input key={i} ref={el=>otpRefs.current[i]=el} value={d}
+              onChange={e=>handleOtpInput(i,e.target.value)}
+              onKeyDown={e=>{if(e.key==="Backspace"&&!d&&i>0){otpRefs.current[i-1]?.focus();const nc=[...otp];nc[i-1]="";setOtp(nc);}}}
+              maxLength={1} type="number"
+              style={{width:48,height:58,borderRadius:14,textAlign:"center",fontSize:24,fontWeight:700,background:"#FFFFFF",border:`2px solid ${d?CL.accent:"#E8E8E8"}`,color:CL.text,outline:"none",fontFamily:"monospace",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}/>
+          ))}
+        </div>
+        {error&&<div style={{background:"#FFF0F0",borderRadius:10,padding:"10px 14px",marginBottom:14,color:CL.accent,fontSize:13}}>⚠️ {error}</div>}
+        <ClientBtn onClick={verifyOTP} disabled={otp.join("").length<6} loading={loading}>
+          Accéder à mes réservations →
+        </ClientBtn>
+      </div>
+    </ClientPageShell>
+  );
+
+  // ── Dashboard réservations ─────────────────────────────────
+  return(
+    <ClientPageShell onBack={onBack} backLabel="Accueil" topSlot={
+      <div>
+        <ClientBrandBar title="Mes réservations"/>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,background:"#F0FFF4",borderRadius:10,padding:"8px 12px"}}>
+          <span style={{fontSize:16}}>👤</span>
+          <span style={{color:"#22C55E",fontSize:13,fontWeight:700}}>{clientData?.prenom}</span>
+          <FiabiliteBadge statut={clientData?.fiabilite_statut||"nouveau"} small={true}/>
+          <span style={{color:CL.muted,fontSize:11,marginLeft:"auto"}}>{clientData?.total_reservations||0} résa</span>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:10}}>
+          {[{v:"recent",l:`24h (${recent.length})`},{v:"history",l:`Historique (${history.length})`}].map(t=>(
+            <button key={t.v} onClick={()=>setTab(t.v)} style={{flex:1,padding:"9px 0",borderRadius:10,border:`1.5px solid ${tab===t.v?CL.accent:"#E8E8E8"}`,background:tab===t.v?CL.accentSoft:"transparent",color:tab===t.v?CL.accent:CL.muted,fontSize:13,fontWeight:tab===t.v?700:400,cursor:"pointer",fontFamily:"inherit"}}>
+              {t.l}
+            </button>
+          ))}
+        </div>
+      </div>
+    }>
+      {loading&&<div style={{textAlign:"center",padding:"40px",color:CL.muted}}>
+        <div style={{width:32,height:32,border:"3px solid #E8E8E8",borderTopColor:CL.accent,borderRadius:"50%",margin:"0 auto 12px",animation:"spin 0.8s linear infinite"}}/>
+        Chargement…
+      </div>}
+
+      {!loading&&displayed.length===0&&(
+        <div style={{textAlign:"center",padding:"48px 20px",color:CL.muted}}>
+          <div style={{fontSize:48,marginBottom:12}}>📋</div>
+          <div style={{fontSize:15,fontWeight:600,color:CL.text,marginBottom:6}}>
+            {tab==="recent"?"Aucune réservation dans les 24h":"Aucune réservation"}
+          </div>
+          <div style={{fontSize:13}}>Vos réservations apparaîtront ici</div>
+        </div>
+      )}
+
+      <div style={{padding:"16px 16px 0"}}>
+      {!loading&&displayed.map(r=>{
+        const timer = getTimer(r);
+        const statut = getStatutStyle(r.statut);
+        const resto = r.restaurants;
+        const enCours = r.statut==="en_attente"||r.statut==="confirmee";
+        return(
+          <div key={r.id} style={{background:"#FFFFFF",borderRadius:20,marginBottom:14,overflow:"hidden",
+            boxShadow:enCours?"0 4px 16px rgba(34,197,94,0.15)":"0 2px 10px rgba(0,0,0,0.07)",
+            border:enCours?"2px solid rgba(34,197,94,0.3)":r.statut==="non_honoree_resto"?"2px solid rgba(232,0,12,0.2)":"2px solid transparent"}}>
+
+            {/* Bannière restaurant */}
+            <div style={{height:64,background:bannerColor(resto?.nom||"r"),display:"flex",alignItems:"center",padding:"0 16px",gap:12}}>
+              <span style={{fontSize:28}}>{resto?.image_emoji||"🍽️"}</span>
+              <div style={{flex:1}}>
+                <div style={{color:"#1F1F1F",fontWeight:800,fontSize:15}}>{resto?.nom||"Restaurant"}</div>
+                <div style={{color:"#6B7280",fontSize:12}}>{resto?.adresse}</div>
+              </div>
+              <span style={{color:statut.color,fontSize:11,fontWeight:700,background:`${statut.color}18`,padding:"4px 10px",borderRadius:20,whiteSpace:"nowrap"}}>
+                {statut.label}
+              </span>
+            </div>
+
+            <div style={{padding:"12px 16px 14px"}}>
+              {/* Compte à rebours */}
+              {timer&&timer.ms>0&&(
+                <div style={{background:`${timer.color}10`,borderRadius:10,padding:"8px 12px",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <span style={{color:timer.color,fontSize:13,fontWeight:600}}>⏱️ Temps restant</span>
+                  <span style={{color:timer.color,fontWeight:900,fontSize:18,fontFamily:"monospace"}}>{timer.label}</span>
+                </div>
+              )}
+
+              {/* Infos */}
+              <div style={{display:"flex",gap:16,fontSize:13,color:CL.muted,marginBottom:r.promo_pct>0?8:12,flexWrap:"wrap"}}>
+                <span>📅 {new Date(r.created_at).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit"})+" "+new Date(r.created_at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}</span>
+                <span>🪑 {r.table_type==="2"?"2 pers.":"4 pers."}</span>
+              </div>
+              {r.promo_pct>0&&(
+                <div style={{background:"rgba(34,197,94,0.08)",borderRadius:8,padding:"6px 12px",marginBottom:12,display:"inline-flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:14}}>⭐</span>
+                  <span style={{color:"#22C55E",fontWeight:700,fontSize:13}}>PromoFlash -{r.promo_pct}% appliquée</span>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {resto?.telephone&&(
+                  <a href={`tel:${resto.telephone}`} style={{flex:1,padding:"10px 0",borderRadius:12,border:"1.5px solid #E8E8E8",background:"transparent",color:CL.text,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textDecoration:"none",textAlign:"center",display:"block",minWidth:90}}>
+                    📞 Appeler
+                  </a>
+                )}
+                {enCours&&(
+                  <button onClick={()=>cancelResa(r)} style={{flex:1,padding:"10px 0",borderRadius:12,border:`1.5px solid rgba(232,0,12,0.2)`,background:"rgba(232,0,12,0.05)",color:CL.accent,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",minWidth:90}}>
+                    ✗ Annuler
+                  </button>
+                )}
+                {peutSignalerResto(r)&&(
+                  <button onClick={()=>signalerNonHonore(r)} style={{flex:1,padding:"10px 0",borderRadius:12,border:"1.5px solid rgba(249,115,22,0.2)",background:"rgba(249,115,22,0.05)",color:"#f97316",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",minWidth:90}}>
+                    ⚠️ Resto absent
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      </div>
+    </ClientPageShell>
+  );
+}
+
+
+function ClientSearch({onBook,onBack,onHome}){
+  const [city,setCity]=useState("annecy");
+  const [cityName,setCityName]=useState("Annecy");
+  const [citySearch,setCitySearch]=useState("");
+  const [userLocation,setUserLocation]=useState(null);
+  const [geoLocating,setGeoLocating]=useState(false);
+  const [iokRestaurants,setIokRestaurants]=useState([]);
+  const [osmRestaurants,setOsmRestaurants]=useState([]);
+  const [filter,setFilter]=useState({cuisine:"Toutes",persons:0});
+  const [selected,setSelected]=useState(null);
+  const [showCityPicker,setShowCityPicker]=useState(false);
+  const [loading,setLoading]=useState(true);
+  const [loadingOsm,setLoadingOsm]=useState(false);
+  const [tick,setTick]=useState(0);
+
+  useEffect(()=>{const t=setInterval(()=>setTick(x=>x+1),1000);return()=>clearInterval(t);},[]);
+
+  // Géolocalisation du client → trouve la ville la plus proche
+  const geolocateCity=()=>{
+    setGeoLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      pos=>{
+        const {latitude:lat,longitude:lng}=pos.coords;
+        setUserLocation({lat,lng});
+        // Trouve la ville IOK la plus proche
+        let closest=CITIES[0];
+        let minDist=Infinity;
+        CITIES.forEach(c=>{
+          const d=Math.sqrt(Math.pow(c.lat-lat,2)+Math.pow(c.lng-lng,2));
+          if(d<minDist){minDist=d;closest=c;}
+        });
+        setCity(closest.id);
+        setCityName(closest.name);
+        setGeoLocating(false);
+        // Centre la carte sur la position réelle du client
+        if(window._iokMap){
+          window._iokMap.setView([lat,lng],15);
+        }
+      },
+      err=>{setGeoLocating(false);console.log("Géoloc refusée:",err);},
+      {enableHighAccuracy:true,timeout:8000}
+    );
+  };
+
+  // Géolocalisation auto au premier chargement
+  useEffect(()=>{
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(
+        pos=>{
+          setUserLocation({lat:pos.coords.latitude,lng:pos.coords.longitude});
+        },
+        ()=>{} // silencieux si refusé
+      );
+    }
+  },[]);
+
+  // Calcule la distance en mètres entre deux points lat/lng
+  const distanceM=(lat1,lng1,lat2,lng2)=>{
+    const R=6371000;
+    const dLat=(lat2-lat1)*Math.PI/180;
+    const dLng=(lng2-lng1)*Math.PI/180;
+    const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+    return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+  };
+
+  // Helper: statut abonnement restaurateur
+  const getRestoStatus=(r)=>{
+    // r.plan + r.plan_debut + r.plan_fin depuis la jointure restaurateur
+    if(!r._iok) return "none"; // pas inscrit IOK
+    if(r._plan==="trial"){
+      const debut=new Date(r._plan_debut||r.created_at);
+      const expiry=new Date(debut.getTime()+30*24*60*60*1000);
+      if(new Date()<expiry) return "trial";
+      return "expired";
+    }
+    if(r._plan==="starter"||r._plan==="premium") return "paid";
+    return "trial";
+  };
+
+  const getMarkerColor=(r)=>{
+    const st=getRestoStatus(r);
+    if(st==="paid") return "#22c55e";    // vert = abonné payant disponible
+    if(st==="trial") return "#ef4444";  // rouge = essai ou indisponible
+    return "#9ca3af";                   // gris = non inscrit
+  };
+
+  const getBadgeLabel=(r)=>{
+    const st=getRestoStatus(r);
+    if(st==="paid"&&r._plan==="premium") return {label:"⭐ Premium",color:"#a855f7",bg:"rgba(168,85,247,0.15)"};
+    if(st==="paid") return {label:"✓ Partenaire",color:"#22c55e",bg:"rgba(34,197,94,0.12)"};
+    if(st==="trial") return {label:"🆕 Essai IOK",color:"#eab308",bg:"rgba(234,179,8,0.12)"};
+    return {label:"Non partenaire",color:"#6b7280",bg:"rgba(107,114,128,0.1)"};
+  };
+
+  // Charge les restaurants IOK depuis Supabase
+  useEffect(()=>{
+    const loadIOK=async()=>{
+      setLoading(true);
+      try{
+        const cityObj=CITIES.find(c=>c.id===city)||CITIES[0];
+        // Requête simple sans jointure pour éviter les problèmes RLS
+        const {data,error}=await db()
+          .from("restaurants")
+          .select("*")
+          .ilike("ville", cityObj.name)
+          .eq("actif",true)
+          .order("nom");
+        
+        if(error){
+          console.error("IOK restaurants error:", error.message, error);
+        }
+        
+        if(data && data.length >= 0){
+          // Enrichit avec infos plan depuis restaurateurs (séparément)
+          const enriched = await Promise.all(data.map(async r=>{
+            let planInfo = {plan:"trial", plan_debut:null, plan_fin:null};
+            try{
+              const {data:rt} = await db()
+                .from("restaurateurs")
+                .select("plan, plan_debut, plan_fin")
+                .eq("id", r.restaurateur_id)
+                .single();
+              if(rt) planInfo = rt;
+            }catch(e){}
+            return {
+              ...r,
+              _iok:true,
+              _plan:planInfo.plan||"trial",
+              _plan_debut:planInfo.plan_debut,
+              _plan_fin:planInfo.plan_fin,
+              promo_active:r.promo_active||false,
+              promo_pct:r.promo_pct||10,
+              promo_jusqu:r.promo_jusqu||null,
+              photos:(()=>{
+                try{
+                  const arr = Array.isArray(r.photos)?r.photos:(r.photos?JSON.parse(r.photos):[]);
+                  // Corriger les URLs qui manquent /public/ dans le chemin Storage
+                  return arr.map(p=>({
+                    ...p,
+                    url: p.url ? p.url.replace('/object/restaurant-photos/','/object/public/restaurant-photos/') : p.url
+                  }));
+                }catch(e){return [];}
+              })(),
+              menu_url:r.menu_url||null,
+            };
+          }));
+          console.log("IOK restaurants loaded:", enriched.length, enriched.map(r=>r.nom));
+          setIokRestaurants(enriched);
+        }
+      }catch(e){
+        console.error("IOK load error:",e);
+      }
+      setLoading(false);
+    };
+    loadIOK();
+    const interval=setInterval(loadIOK,30000);
+    return()=>clearInterval(interval);
+  },[city]);
+
+  // Charge les restaurants OSM (Overpass API) pour la ville
+  useEffect(()=>{
+    const loadOSM=async()=>{
+      setLoadingOsm(true);
+      try{
+        const cityObj=CITIES.find(c=>c.id===city)||CITIES[0];
+        const r=0.015; // rayon ~1.5km autour du centre
+        const bbox=`${cityObj.lat-r},${cityObj.lng-r*1.5},${cityObj.lat+r},${cityObj.lng+r*1.5}`;
+        const query=`[out:json][timeout:15];(node["amenity"="restaurant"](${bbox});way["amenity"="restaurant"](${bbox}););out center 60;`;
+        const url=`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+        const res=await fetch(url);
+        if(!res.ok) throw new Error("OSM fetch failed");
+        const json=await res.json();
+        const places=(json.elements||[]).map(el=>({
+          id:"osm_"+(el.id||Math.random()),
+          _iok:false,
+          nom:el.tags?.name||"Restaurant",
+          adresse:el.tags?.["addr:street"]?(el.tags["addr:housenumber"]?" "+el.tags["addr:housenumber"]:"")+(el.tags["addr:street"]||""):"",
+          cuisines:el.tags?.cuisine?[el.tags.cuisine.split(";")[0]]:[],
+          image_emoji:"🍽️",
+          latitude:el.lat||el.center?.lat,
+          longitude:el.lon||el.center?.lon,
+          disponible:false,
+          prix_moyen:null,
+          note_google:null,
+          nb_avis_google:0,
+          nb_tables_2:0,
+          nb_tables_4:0,
+          grande_disponibilite:false,
+          disponible_jusqu:null,
+        }));
+        setOsmRestaurants(places);
+      }catch(e){ console.error("OSM error:",e); setOsmRestaurants([]); }
+      setLoadingOsm(false);
+    };
+    loadOSM();
+  },[city]);
+
+  // Fusionne IOK + OSM (déduplique par proximité)
+  const allRestaurants=React.useMemo(()=>{
+    const iokIds=new Set();
+    const result=[...iokRestaurants];
+    // Marque les positions IOK
+    iokRestaurants.forEach(r=>{ if(r.latitude&&r.longitude) iokIds.add(`${r.latitude.toFixed(3)},${r.longitude.toFixed(3)}`); });
+    // Ajoute les OSM non-doublons (distance >50m des IOK)
+    osmRestaurants.forEach(osm=>{
+      if(!osm.latitude||!osm.longitude) return;
+      const key=`${osm.latitude.toFixed(3)},${osm.longitude.toFixed(3)}`;
+      // Vérifie si un IOK est proche (~50m)
+      const duplicate=iokRestaurants.some(iok=>{
+        if(!iok.latitude||!iok.longitude) return false;
+        const dlat=Math.abs(iok.latitude-osm.latitude);
+        const dlng=Math.abs(iok.longitude-osm.longitude);
+        return dlat<0.0005&&dlng<0.0005;
+      });
+      if(!duplicate) result.push(osm);
+    });
+    return result;
+  },[iokRestaurants,osmRestaurants]);
+
+  const cityObj=CITIES.find(c=>c.id===city)||CITIES[0];
+
+  const filtered=allRestaurants.filter(r=>{
+    if(filter.cuisine!=="Toutes"){
+      const cuisines=r.cuisines||[];
+      if(!cuisines.some(c=>c.toLowerCase().includes(filter.cuisine.toLowerCase()))) return false;
+    }
+    if(filter.persons===2&&(r.nb_tables_2||0)===0&&r._iok) return false;
+    if(filter.persons===4&&(r.nb_tables_4||0)===0&&r._iok) return false;
+    return true;
+  });
+
+
+// Génère une couleur de bannière depuis le nom du restaurant
+  const iokAvail=filtered.filter(r=>r._iok&&r.disponible&&r.disponible_jusqu&&new Date(r.disponible_jusqu)>new Date());
+  const iokUnavail=filtered.filter(r=>r._iok&&(!r.disponible||!r.disponible_jusqu||new Date(r.disponible_jusqu)<=new Date()));
+  const osmOnly=filtered.filter(r=>!r._iok);
+  const allCuisines=[...new Set(iokRestaurants.flatMap(r=>r.cuisines||[]))];
+
+  // Carte avec marqueurs colorés
+  const mapRestaurants=filtered.map(r=>({...r,_markerColor:getMarkerColor(r)}));
+
+  return(
+    <ClientPageShell onBack={onBack} backLabel="Accueil" topSlot={
+      <div>
+        <ClientBrandBar title="Trouver une table" right={
+          <div style={{textAlign:"right"}}>
+            <div style={{color:"#22C55E",fontWeight:800,fontSize:16}}>{iokAvail.length}</div>
+            <div style={{fontSize:10,color:CL.muted}}>dispo.</div>
+          </div>
+        }/>
+        {/* Sélecteur de ville avec recherche libre */}
+        <div style={{position:"relative"}}>
+          <button onClick={()=>setShowCityPicker(v=>!v)} style={{marginTop:10,background:"#FFFFFF",border:"1.5px solid #E8E8E8",borderRadius:12,padding:"10px 16px",color:CL.text,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:8,width:"100%",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+            <span style={{fontSize:18}}>📍</span>
+            <span style={{flex:1,textAlign:"left"}}>{cityName||cityObj.name}</span>
+            <button onClick={(e)=>{e.stopPropagation();geolocateCity();}} style={{background:"rgba(59,130,246,0.15)",border:"1px solid rgba(59,130,246,0.3)",borderRadius:8,padding:"4px 10px",color:"#60a5fa",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>{geoLocating?"⏳":"📡 Me localiser"}</button>
+            <span style={{color:C.accent,fontSize:12}}>{showCityPicker?"▲":"▼"}</span>
+          </button>
+          {showCityPicker&&(
+            <div style={{background:"#FFFFFF",border:"1.5px solid #E8E8E8",borderRadius:12,marginTop:4,overflow:"hidden",zIndex:1000,position:"absolute",width:"100%",boxShadow:"0 8px 32px rgba(0,0,0,0.12)"}}>
+              {/* Recherche libre */}
+              <div style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}`}}>
+                <input value={citySearch} onChange={e=>setCitySearch(e.target.value)} placeholder="Rechercher une ville..." style={{width:"100%",background:"transparent",border:"none",outline:"none",color:C.text,fontSize:14,fontFamily:"inherit"}}/>
+              </div>
+              {/* Liste filtrée */}
+              {CITIES.filter(c=>c.name.toLowerCase().includes(citySearch.toLowerCase())).map(c=>(
+                <button key={c.id} onClick={()=>{setCity(c.id);setCityName(c.name);setShowCityPicker(false);setCitySearch("");setSelected(null);}} style={{width:"100%",padding:"12px 16px",background:c.id===city?"rgba(232,0,12,0.05)":"transparent",border:"none",borderBottom:"1px solid #F0F0F0",color:c.id===city?CL.accent:CL.text,fontSize:14,cursor:"pointer",fontFamily:"inherit",textAlign:"left",fontWeight:c.id===city?700:400}}>
+                  {c.id===city?"✓ ":""}{c.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {/* Mode test / distance */}
+        {TEST_MODE&&(
+          <div style={{marginTop:8,background:"#FFF9E6",border:"1px solid #F5E27A",borderRadius:10,padding:"6px 12px",display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:14}}>🧪</span>
+            <span style={{color:"#B8860B",fontSize:11,fontWeight:600}}>MODE TEST — restriction distance désactivée</span>
+          </div>
+        )}
+        {/* Légende couleurs */}
+        <div style={{display:"flex",gap:12,marginTop:10,flexWrap:"wrap"}}>
+          {[["#22c55e","Disponible"],["#ef4444","Indisponible"],["#9ca3af","Non inscrit"],["#3b82f6","Vous"]].map(([c,l])=>(
+            <span key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:CL.muted}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:c,display:"inline-block",flexShrink:0}}/>
+              {l}
+            </span>
+          ))}
+        </div>
+      </div>
+    }>
+      {/* Carte */}
+      <LeafletMapColored
+        restaurants={mapRestaurants}
+        selected={selected}
+        onSelect={r=>setSelected(selected?.id===r.id?null:r)}
+        city={city}
+        height={260}
+        loading={loadingOsm}
+        userLocation={userLocation}
+      />
+
+      {/* Fiche restaurant sélectionné */}
+      {selected&&(()=>{
+        const st=getRestoStatus(selected);
+        const ok=selected._iok&&selected.disponible&&selected.disponible_jusqu&&new Date(selected.disponible_jusqu)>new Date();
+        const tLeft=ok?Math.max(0,new Date(selected.disponible_jusqu)-new Date()):0;
+        const canBook=ok&&(st==="paid"||st==="trial");
+        const hasPromo=selected._iok&&selected.promo_active&&selected.promo_jusqu&&new Date(selected.promo_jusqu)>new Date();
+        const pics=selected.photos&&selected.photos.length>0?selected.photos:null;
+        return(
+          <div style={{background:"#FFFFFF",borderRadius:20,marginBottom:16,overflow:"hidden",boxShadow:"0 4px 20px rgba(0,0,0,0.1)",animation:"fadeUp 0.2s ease"}}>
+            {/* Bannière — carrousel si photos, sinon emoji */}
+            <PhotoCarousel
+              pics={pics}
+              emoji={selected.image_emoji}
+              nom={selected.nom}
+              ok={ok}
+              tLeft={tLeft}
+              hasPromo={hasPromo}
+              promoPct={selected.promo_pct}
+              onClose={()=>setSelected(null)}
+            />
+            <div style={{padding:"16px 16px 18px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                <div>
+                  <div style={{color:CL.text,fontWeight:900,fontSize:18,letterSpacing:-0.5}}>{selected.nom}</div>
+                  <div style={{color:CL.muted,fontSize:13,marginTop:2}}>{(selected.cuisines||[]).join(", ")||"Restaurant"}</div>
+                  <div style={{color:CL.muted,fontSize:12,marginTop:1}}>{selected.adresse}</div>
+                </div>
+                {selected.note_google&&<div style={{textAlign:"center",background:"#F8F8F8",borderRadius:12,padding:"6px 12px",flexShrink:0}}>
+                  <div style={{color:CL.text,fontWeight:800,fontSize:16}}>{selected.note_google}</div>
+                  <div style={{color:"#F5A623",fontSize:11}}>★★★★★</div>
+                </div>}
+              </div>
+              <div style={{display:"flex",gap:16,margin:"12px 0",fontSize:13,color:CL.muted,flexWrap:"wrap"}}>
+                {selected.prix_moyen&&<span>💶 ~{selected.prix_moyen}€/pers</span>}
+                {(selected.nb_tables_2||0)>0&&<span>👥 {selected.nb_tables_2}× 2p</span>}
+                {(selected.nb_tables_4||0)>0&&<span>👨‍👩‍👧‍👦 {selected.nb_tables_4}× 4p</span>}
+                {selected.grande_disponibilite&&<span style={{color:"#22C55E",fontWeight:700}}>Grande dispo</span>}
+              </div>
+              {!selected._iok&&<div style={{background:"#FFF8F8",border:"1px solid rgba(232,0,12,0.12)",borderRadius:12,padding:"10px 14px",marginBottom:12,fontSize:13,color:CL.muted}}>Ce restaurant n'est pas encore partenaire IOK — disponibilité non garantie.</div>}
+              {selected._iok&&!ok&&<div style={{background:"#F8F8F8",borderRadius:12,padding:"10px 14px",marginBottom:12,textAlign:"center",color:CL.muted,fontSize:13}}>⚫ Indisponible actuellement</div>}
+              {selected.menu_url&&(
+                <div style={{background:"#F8F8F8",borderRadius:14,padding:"14px 16px",marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                    <div>
+                      <div style={{color:CL.text,fontWeight:700,fontSize:14}}>📋 Menu</div>
+                      <div style={{color:CL.muted,fontSize:12}}>Scannez ou appuyez pour voir</div>
+                    </div>
+                    <a href={selected.menu_url} target="_blank" rel="noopener"
+                      style={{padding:"8px 14px",borderRadius:10,background:CL.accent,color:"white",fontSize:12,fontWeight:700,textDecoration:"none",flexShrink:0}}>Voir →</a>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"center"}}>
+                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(selected.menu_url)}&bgcolor=f8f8f8&color=1f1f1f&margin=1`}
+                      alt="QR Menu" style={{width:140,height:140,borderRadius:10}}/>
+                  </div>
+                </div>
+              )}
+              {canBook&&(
+                <button onClick={()=>onBook(selected)}
+                  style={{width:"100%",padding:"16px 0",borderRadius:14,border:"none",background:CL.accent,color:"white",fontSize:16,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:`0 6px 20px ${CL.accentGlow}`,letterSpacing:-0.3}}>
+                  Réserver chez {selected.nom} →
+                </button>
+              )}
+              {!selected._iok&&<div style={{textAlign:"center",color:CL.muted,fontSize:12,paddingTop:4}}>Invitez ce restaurant à rejoindre IOK 🙌</div>}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Filtres */}
+      <div style={{background:"#FFFFFF",borderRadius:16,padding:"14px 16px",marginBottom:14,boxShadow:"0 1px 6px rgba(0,0,0,0.06)"}}>
+        {allCuisines.length>0&&<div style={{marginBottom:10}}>
+          <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>
+            {["Toutes",...allCuisines].map(c=>(
+              <button key={c} onClick={()=>setFilter(f=>({...f,cuisine:c}))}
+                style={{whiteSpace:"nowrap",padding:"6px 14px",borderRadius:20,border:`1.5px solid ${filter.cuisine===c?CL.accent:"#E8E8E8"}`,background:filter.cuisine===c?CL.accentSoft:"transparent",color:filter.cuisine===c?CL.accent:CL.muted,fontSize:12,fontWeight:filter.cuisine===c?700:400,cursor:"pointer",fontFamily:"inherit"}}>
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>}
+        <div style={{display:"flex",gap:6}}>
+          {[{v:0,l:"Tous"},{v:2,l:"👥 2 pers."},{v:4,l:"👨‍👩‍👧‍👦 4 pers."}].map(p=>(
+            <button key={p.v} onClick={()=>setFilter(f=>({...f,persons:p.v}))}
+              style={{flex:1,padding:"8px 0",borderRadius:10,border:`1.5px solid ${filter.persons===p.v?CL.accent:"#E8E8E8"}`,background:filter.persons===p.v?CL.accentSoft:"transparent",color:filter.persons===p.v?CL.accent:CL.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:filter.persons===p.v?700:400}}>
+              {p.l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Loading state */}
+      {loading&&(
+        <div style={{textAlign:"center",padding:"40px 0",color:CL.muted}}>
+          <div style={{width:36,height:36,border:"3px solid #E8E8E8",borderTopColor:CL.accent,borderRadius:"50%",margin:"0 auto 12px",animation:"spin 0.8s linear infinite"}}/>
+          <div style={{fontSize:13}}>Chargement des restaurants…</div>
+        </div>
+      )}
+
+      {/* Listes */}
+      {!loading&&<>
+        {/* Disponibles maintenant */}
+        {iokAvail.length>0&&(
+          <>
+            <div style={{color:CL.text,fontSize:13,fontWeight:800,marginBottom:14,letterSpacing:-0.3}}>Disponibles maintenant <span style={{color:"#22C55E",fontWeight:900}}>({iokAvail.length})</span></div>
+            {iokAvail.map(r=>{
+              const tLeft=Math.max(0,new Date(r.disponible_jusqu)-new Date());
+              const hasPromo=r.promo_active&&r.promo_jusqu&&new Date(r.promo_jusqu)>new Date();
+              const bColor=bannerColor(r.nom);
+              return(
+                <div key={r.id} onClick={()=>setSelected(r)}
+                  style={{background:"#FFFFFF",borderRadius:20,marginBottom:16,cursor:"pointer",overflow:"hidden",boxShadow:selected?.id===r.id?"0 4px 20px rgba(232,0,12,0.18)":"0 2px 12px rgba(0,0,0,0.08)",border:selected?.id===r.id?"2px solid "+CL.accent:"2px solid transparent",transition:"all 0.15s"}}>
+                  {/* Bannière — photo si dispo, sinon couleur+emoji */}
+                  <div style={{height:110,background:bColor,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",overflow:"hidden"}}>
+                    {r.photos&&r.photos.length>0
+                      ?<img src={r.photos[0].url} alt={r.nom} onError={e=>{e.target.style.display="none";}} style={{width:"100%",height:"100%",objectFit:"cover",position:"absolute",inset:0}}/>
+                      :<span style={{fontSize:52}}>{r.image_emoji||"🍽️"}</span>
+                    }
+                    {/* Badge dispo */}
+                    <div style={{position:"absolute",top:10,left:12,background:"#22C55E",color:"white",fontSize:11,fontWeight:800,padding:"4px 10px",borderRadius:20,display:"flex",alignItems:"center",gap:5}}>
+                      <span style={{width:6,height:6,borderRadius:"50%",background:"white",display:"inline-block"}}/>
+                      {fmt(tLeft)}
+                    </div>
+                    {/* Badge promo */}
+                    {hasPromo&&(
+                      <div style={{position:"absolute",top:10,right:12,background:CL.accent,color:"white",fontSize:12,fontWeight:900,padding:"4px 10px",borderRadius:20,animation:"promoPulse 1.5s ease-in-out infinite"}}>
+                        -{r.promo_pct||10}%
+                      </div>
+                    )}
+                  </div>
+                  {/* Infos */}
+                  <div style={{padding:"12px 14px 14px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                      <div style={{color:CL.text,fontWeight:800,fontSize:16}}>{r.nom}</div>
+                      {r.note_google&&<div style={{display:"flex",alignItems:"center",gap:3,color:CL.text,fontWeight:700,fontSize:13}}>
+                        <span style={{color:"#F5A623"}}>★</span>{r.note_google}
+                      </div>}
+                    </div>
+                    <div style={{color:CL.muted,fontSize:13,marginBottom:6}}>{(r.cuisines||[]).slice(0,2).join(" · ")||"Restaurant"}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:10,fontSize:12,color:CL.muted}}>
+                      {r.prix_moyen&&<span>~{r.prix_moyen}€/pers</span>}
+                      {r.prix_moyen&&<span style={{color:"#E0E0E0"}}>·</span>}
+                      <span>{r.nb_tables_2>0?`${r.nb_tables_2}× 2 pers`:""}{r.nb_tables_2>0&&r.nb_tables_4>0?" / ":""}{r.nb_tables_4>0?`${r.nb_tables_4}× 4 pers`:""}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {/* IOK inscrits mais indisponibles */}
+        {iokUnavail.length>0&&(
+          <>
+            <div style={{color:CL.text,fontSize:13,fontWeight:800,margin:"24px 0 12px",letterSpacing:-0.3}}>Partenaires IOK <span style={{color:CL.muted,fontWeight:500}}>({iokUnavail.length})</span></div>
+            {iokUnavail.map(r=>(
+              <div key={r.id} onClick={()=>setSelected(r)}
+                style={{background:"#FFFFFF",borderRadius:14,padding:"12px 14px",marginBottom:8,cursor:"pointer",display:"flex",alignItems:"center",gap:12,boxShadow:"0 1px 6px rgba(0,0,0,0.06)",opacity:0.7}}>
+                <div style={{width:48,height:48,borderRadius:12,background:bannerColor(r.nom),display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>{r.image_emoji||"🍽️"}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{color:CL.text,fontWeight:700,fontSize:14,marginBottom:2}}>{r.nom}</div>
+                  <div style={{color:CL.muted,fontSize:12}}>{(r.cuisines||[]).slice(0,2).join(" · ")||"Restaurant"}{r.prix_moyen?" · ~"+r.prix_moyen+"€":""}</div>
+                </div>
+                <div style={{color:"#BDBDBD",fontSize:12,fontWeight:600,flexShrink:0}}>Indispo.</div>
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* Restaurants OSM non inscrits */}
+        {osmOnly.length>0&&(
+          <>
+            <div style={{color:CL.text,fontSize:13,fontWeight:800,margin:"24px 0 12px",letterSpacing:-0.3}}>Autres restaurants <span style={{color:CL.muted,fontWeight:500,fontSize:12}}>— non partenaires</span></div>
+            {osmOnly.slice(0,15).map(r=>(
+              <div key={r.id} onClick={()=>setSelected(r)}
+                style={{background:"#FAFAFA",borderRadius:14,padding:"12px 14px",marginBottom:8,cursor:"pointer",display:"flex",alignItems:"center",gap:12,opacity:0.6}}>
+                <div style={{width:40,height:40,borderRadius:10,background:"#F0F0F0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🍽️</div>
+                <div style={{flex:1}}>
+                  <div style={{color:CL.text,fontWeight:600,fontSize:13}}>{r.nom}</div>
+                  <div style={{color:CL.muted,fontSize:11}}>{r.adresse||"Adresse non disponible"}</div>
+                  <div style={{color:"#ef4444",fontSize:10,marginTop:2}}>Non partenaire IOK</div>
+                </div>
+              </div>
+            ))}
+            {loadingOsm&&<div style={{textAlign:"center",color:CL.muted,fontSize:12,padding:"10px 0"}}>Chargement carte OSM…</div>}
+          </>
+        )}
+      </>}
+    </ClientPageShell>
+  );
+}
+
+
+// Indicatifs téléphoniques disponibles
+const INDICATIFS = [
+  {code:"+33",flag:"🇫🇷",label:"France"},
+  {code:"+41",flag:"🇨🇭",label:"Suisse"},
+  {code:"+32",flag:"🇧🇪",label:"Belgique"},
+  {code:"+39",flag:"🇮🇹",label:"Italie"},
+  {code:"+34",flag:"🇪🇸",label:"Espagne"},
+  {code:"+49",flag:"🇩🇪",label:"Allemagne"},
+];
+
+function IndicatifSelect({value, onChange}){
+  const [open, setOpen] = useState(false);
+  const sel = INDICATIFS.find(i=>i.code===value)||INDICATIFS[0];
+  return(
+    <div style={{position:"relative",flexShrink:0}}>
+      <button type="button" onClick={()=>setOpen(v=>!v)}
+        style={{padding:"0 12px",height:"100%",minHeight:50,background:"transparent",border:"none",borderRight:"1.5px solid #E8E8E8",color:"#6B7280",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontFamily:"inherit",whiteSpace:"nowrap"}}>
+        {sel.flag} {sel.code} <span style={{fontSize:9}}>▾</span>
+      </button>
+      {open&&(
+        <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:"#FFFFFF",border:"1.5px solid #E8E8E8",borderRadius:12,zIndex:9999,minWidth:180,boxShadow:"0 8px 24px rgba(0,0,0,0.12)",overflow:"hidden"}}>
+          {INDICATIFS.map(ind=>(
+            <button key={ind.code} type="button" onClick={()=>{onChange(ind.code);setOpen(false);}}
+              style={{width:"100%",padding:"11px 14px",background:ind.code===value?"rgba(232,0,12,0.05)":"#FFFFFF",border:"none",borderBottom:"1px solid #F0F0F0",color:ind.code===value?CL.accent:"#1F1F1F",fontSize:13,cursor:"pointer",fontFamily:"inherit",textAlign:"left",display:"flex",gap:8,alignItems:"center",fontWeight:ind.code===value?700:400}}>
+              <span>{ind.flag}</span><span style={{flex:1}}>{ind.label}</span><span style={{color:"#9CA3AF"}}>{ind.code}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TelInput({label, value, onChange, indicatif, onIndicatifChange, disabled, required}){
+  return(
+    <div style={{marginBottom:14}}>
+      {label&&<div style={{color:CL.text,fontSize:13,fontWeight:700,marginBottom:8}}>
+        {label}{required&&<span style={{color:CL.accent,marginLeft:3}}>*</span>}
+      </div>}
+      <div style={{display:"flex",alignItems:"stretch",background:disabled?"#F8F8F8":"#FFFFFF",border:"1.5px solid",borderColor:disabled?"#E8E8E8":"#E0E0E0",borderRadius:12,opacity:disabled?0.6:1,position:"relative"}}>
+        <IndicatifSelect value={indicatif} onChange={onIndicatifChange}/>
+        <input value={value} onChange={e=>onChange(e.target.value)} type="tel" disabled={disabled}
+          placeholder="06 12 34 56 78"
+          style={{flex:1,background:"transparent",border:"none",outline:"none",padding:"14px",color:CL.text,fontSize:15,fontFamily:"inherit"}}/>
+      </div>
+    </div>
+  );
+}
+
+function ClientBookingAuth({restaurant, onSuccess, onBack, onHome}){
+  // TEST_MODE : désactive connexion obligatoire
+  const [authStep, setAuthStep] = useState(TEST_MODE ? "guest" : "auth_choice");
+  // auth_choice | otp_phone | otp_verify | register | guest | sms_resa | confirmed
+  const [step, setStep] = useState("form");
+  const [form, setForm] = useState({prenom:"",nom:"",email:"",tel:"",persons:2,tableType:null});
+  const [authForm, setAuthForm] = useState({tel:"",prenom:"",nom:"",email:""});
+  const [authOTP, setAuthOTP] = useState(["","","","","",""]);  // 6 chiffres
+  const [code, setCode] = useState(["","","","",""]);           // 5 chiffres SMS résa
+  const [consentCGV, setConsentCGV] = useState(false);
+  const [consentMarketing, setConsentMarketing] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [clientData, setClientData] = useState(null);
+  // Bug 4 fix : indicatif sélectionnable
+  const [indicatif, setIndicatif] = useState("+33");
+  // Bug 5 fix : promoPct dans le state (accessible dans confirmed)
+  const [promoPct, setPromoPct] = useState(0);
+  const inputsRef = useRef([]);
+  const otpRefs = useRef([]);
+
+  // Calcule promoPct depuis le restaurant au montage
+  useEffect(()=>{
+    if(restaurant?.promo_active && restaurant?.promo_jusqu && new Date(restaurant.promo_jusqu)>new Date()){
+      setPromoPct(restaurant.promo_pct||10);
+    } else {
+      setPromoPct(0);
+    }
+  },[restaurant]);
+
+  const valid = form.prenom.trim()&&form.tel.replace(/\s/g,"").length>=9&&form.tableType!==null;
+  const sendSMS = ()=>{ setSending(true); setTimeout(()=>{setSending(false);setStep("sms");},1200); };
+
+  // ── Login client ──────────────────────────────────────────
+  const loginClient = async()=>{
+    setError(""); setSaving(true);
+    try{
+      const tel = indicatif+authForm.tel.replace(/\s/g,"").replace(/^0/,"");
+      const {data:client,error:e} = await db()
+        .from("clients")
+        .select("*")
+        .eq("telephone", tel)
+        .single();
+      if(e||!client){ throw new Error("Numéro introuvable. Vérifiez ou créez un compte."); }
+      // Vérif mot de passe (simplifié - en prod utiliser Supabase Auth)
+      if(client.password_hash && client.password_hash !== authForm.password){
+        throw new Error("Mot de passe incorrect.");
+      }
+      setClientData(client);
+      setForm(f=>({...f, prenom:client.prenom, nom:client.nom, tel:authForm.tel}));
+      setAuthStep("guest"); // Passe au formulaire réservation
+    }catch(e){ setError(e.message); }
+    finally{ setSaving(false); }
+  };
+
+  // registerClient intégré dans sendOTP/verifyOTP
+
+  // ── Vérification code SMS + réservation ──────────────────
+  const verify = async()=>{
+    if(code.join("").length<5){ setError("Code invalide. Essayez 12345."); return; }
+    if(!form.tableType){ setError("Veuillez choisir un type de table."); return; }
+    setSaving(true);
+    try{
+      // Vérifie disponibilité en temps réel
+      const {data:restoActuel} = await db().from("restaurants").select("nb_tables_2,nb_tables_4,disponible,disponible_jusqu").eq("id",restaurant.id).single();
+      if(!restoActuel||!restoActuel.disponible) throw new Error("Ce restaurant n'est plus disponible.");
+      if(restoActuel.disponible_jusqu&&new Date(restoActuel.disponible_jusqu)<new Date()) throw new Error("Le créneau a expiré.");
+      const tableKey = form.tableType==="2"?"nb_tables_2":"nb_tables_4";
+      if((restoActuel[tableKey]||0)<=0) throw new Error(`Plus de table pour ${form.tableType} personnes.`);
+
+      // Décrémente le compteur
+      const newCount = (restoActuel[tableKey]||0) - 1;
+      const updateData = {[tableKey]:newCount, updated_at:new Date().toISOString()};
+      const autreKey = form.tableType==="2"?"nb_tables_4":"nb_tables_2";
+      if(newCount===0&&(restoActuel[autreKey]||0)===0){
+        updateData.disponible=false; updateData.disponible_depuis=null;
+        updateData.disponible_jusqu=null; updateData.grande_disponibilite=false;
+      }
+      const {error:updErr} = await db().from("restaurants").update(updateData).eq("id",restaurant.id);
+      if(updErr){ console.error("Restaurant update error:", updErr); }
+
+      // Crée ou retrouve le client
+      let clientId = clientData?.id || null;
+      if(!clientId){
+        const tel = "+33"+form.tel.replace(/\s/g,"").replace(/^0/,"");
+        console.log("🔍 Recherche client tel:", tel);
+        try{
+          const {data:existing, error:searchErr} = await db()
+            .from("clients").select("id,prenom")
+            .eq("telephone",tel).maybeSingle();
+          if(searchErr) console.error("❌ Recherche client:", searchErr.message);
+          if(existing){
+            clientId = existing.id;
+            console.log("✅ Client existant trouvé:", clientId);
+          } else {
+            console.log("➕ Création nouveau client...");
+            const {data:nc, error:ncErr} = await db().from("clients").insert({
+              prenom: form.prenom.trim(),
+              nom: form.nom?.trim()||null,
+              email: form.email?.trim().toLowerCase()||null,
+              telephone: tel,
+              consent_cgv: false,
+              consent_marketing: false,
+            }).select("id").single();
+            if(ncErr){
+              console.error("❌ Insert client échoué:", ncErr.message, ncErr.code, ncErr.details);
+            } else {
+              clientId = nc.id;
+              console.log("✅ Client créé:", clientId);
+            }
+          }
+        }catch(clientErr){
+          console.error("❌ Exception client:", clientErr.message);
+        }
+      }
+      console.log("📋 clientId final:", clientId);
+
+      // Crée la réservation
+      const tel_final = clientData?.telephone||"+33"+form.tel.replace(/\s/g,"").replace(/^0/,"");
+      const {data:resa, error:resaErr} = await db().from("reservations").insert({
+        client_id:clientId||null,
+        client_prenom:form.prenom,
+        client_nom:form.nom||null,
+        client_telephone:tel_final,
+        restaurant_id:restaurant.id,
+        nb_personnes:form.persons,
+        table_type:form.tableType,
+        statut:"en_attente",
+        sms_verifie:true,
+        code_sms:code.join(""),
+        timer_demarre_at:new Date().toISOString(),
+        promo_pct:promoPct,
+      }).select();
+
+      if(resaErr){
+        console.error("Erreur création réservation:", resaErr);
+        throw new Error("Erreur réservation: "+resaErr.message);
+      }
+      console.log("✅ Réservation créée:", resa);
+
+      setStep("confirmed");
+      setTimeout(()=>onSuccess({...form,restaurant}),2000);
+    }catch(e){
+      setError(e.message||"Erreur lors de la réservation.");
+    }finally{ setSaving(false); }
+  };
+
+  const handleDigit=(i,v)=>{
+    const d=v.replace(/\D/g,"").slice(-1);
+    const nc=[...code]; nc[i]=d; setCode(nc);
+    if(d&&i<4) inputsRef.current[i+1]?.focus();
+  };
+
+  // ── Écran confirmation ────────────────────────────────────
+  if(step==="confirmed") return(
+    <div style={{minHeight:"100vh",background:"#FFFFFF",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,padding:32,textAlign:"center"}}>
+      <div style={{width:80,height:80,borderRadius:"50%",background:"#F0FFF4",display:"flex",alignItems:"center",justifyContent:"center",fontSize:40,boxShadow:"0 4px 20px rgba(34,197,94,0.2)"}}>✅</div>
+      <div style={{color:"#22C55E",fontSize:22,fontWeight:900,letterSpacing:-0.5}}>Réservation confirmée !</div>
+      <div style={{color:CL.text,fontSize:17,fontWeight:700}}>{restaurant.nom}</div>
+      <div style={{color:CL.muted,fontSize:14}}>SMS de confirmation envoyé</div>
+      <div style={{background:"#F8F8F8",borderRadius:20,padding:20,marginTop:4,width:"100%",textAlign:"left"}}>
+        <div style={{color:CL.muted,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:12}}>Récapitulatif</div>
+        {[
+          ["Nom",form.nom?`${form.prenom} ${form.nom}`:form.prenom],
+          ...(promoPct>0?[["⭐ PromoFlash",`-${promoPct}% sur l'addition`]]:[]),
+          ["Restaurant",restaurant.nom],
+          ["Table",form.tableType==="2"?"Table 2 personnes 👥":"Table 4 personnes 👨‍👩‍👧‍👦"],
+          ["Cuisine",(restaurant.cuisines||[]).join(", ")],
+          ["Prix moyen",`~${restaurant.prix_moyen||"?"}€/pers`],
+        ].map(([k,v])=>(
+          <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #F0F0F0"}}>
+            <span style={{color:CL.muted,fontSize:13}}>{k}</span>
+            <span style={{color:CL.text,fontSize:13,fontWeight:700}}>{v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // ── Choix auth (connexion / inscription / invité) ─────────
+  if(authStep==="auth_choice") return(
+    <ClientPageShell onBack={onBack} backLabel="Retour" topSlot={
+      <div style={{display:"flex",alignItems:"center",gap:10,marginTop:6,background:CL.accentSoft,borderRadius:12,padding:"10px 14px"}}>
+        <span style={{fontSize:22}}>{restaurant.image_emoji||"🍽️"}</span>
+        <div>
+          <div style={{color:CL.text,fontWeight:700,fontSize:15}}>{restaurant.nom}</div>
+          <div style={{color:CL.muted,fontSize:12}}>{(restaurant.cuisines||[]).join(", ")}</div>
+        </div>
+      </div>
+    }>
+      <div style={{padding:"24px 20px"}}>
+        <div style={{color:CL.text,fontSize:24,fontWeight:900,marginBottom:6,letterSpacing:-0.5}}>Votre compte</div>
+        <div style={{color:CL.muted,fontSize:14,marginBottom:28}}>Identifiez-vous pour réserver</div>
+
+        <button onClick={()=>setAuthStep("otp_phone")}
+          style={{width:"100%",padding:"16px",borderRadius:16,border:"1.5px solid #E8E8E8",background:"#FFFFFF",color:CL.text,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:12,display:"flex",alignItems:"center",gap:14,textAlign:"left",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+          <div style={{width:44,height:44,borderRadius:12,background:"#EEF3FF",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>🔑</div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,color:CL.text}}>J'ai déjà un compte</div>
+            <div style={{color:CL.muted,fontSize:12,marginTop:2}}>Se connecter avec mon numéro</div>
+          </div>
+          <span style={{color:"#BDBDBD",fontSize:20}}>›</span>
+        </button>
+
+        <button onClick={()=>{setAuthStep("otp_phone");setAuthForm(p=>({...p,_newUser:true}));}}
+          style={{width:"100%",padding:"16px",borderRadius:16,border:"1.5px solid #E8E8E8",background:"#FFFFFF",color:CL.text,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:12,display:"flex",alignItems:"center",gap:14,textAlign:"left",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+          <div style={{width:44,height:44,borderRadius:12,background:CL.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>✨</div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,color:CL.text}}>Créer mon compte</div>
+            <div style={{color:CL.muted,fontSize:12,marginTop:2}}>Nouveau sur IOK</div>
+          </div>
+          <span style={{color:"#BDBDBD",fontSize:20}}>›</span>
+        </button>
+
+        <button onClick={()=>setAuthStep("guest")}
+          style={{width:"100%",padding:"14px",borderRadius:14,border:"none",background:"transparent",color:CL.muted,fontSize:14,cursor:"pointer",fontFamily:"inherit",marginBottom:20,fontWeight:600}}>
+          Continuer sans compte →
+        </button>
+
+        <div style={{background:"#F8F9FF",borderRadius:12,padding:"12px 14px",fontSize:13,color:CL.muted,lineHeight:1.6}}>
+          ℹ️ Un compte vous permet de suivre vos réservations et de bénéficier du programme de fidélité IOK.
+        </div>
+      </div>
+    </ClientPageShell>
+  );
+
+  // ── Saisie numéro (commun login + inscription) ───────────
+  if(authStep==="otp_phone") return(
+    <ClientPageShell onBack={()=>{setAuthStep("auth_choice");setError("");}} backLabel="Retour">
+      <div style={{padding:"32px 20px"}}>
+        <div style={{fontSize:44,marginBottom:16}}>📱</div>
+        <div style={{color:CL.text,fontSize:26,fontWeight:900,marginBottom:6,letterSpacing:-0.5}}>Votre numéro</div>
+        <div style={{color:CL.muted,fontSize:14,marginBottom:28,lineHeight:1.6}}>Entrez votre numéro. Vous recevrez un code à 6 chiffres.</div>
+        <TelInput label="Téléphone mobile" value={authForm.tel} onChange={v=>setAuthForm(p=>({...p,tel:v}))} indicatif={indicatif} onIndicatifChange={setIndicatif} required={true}/>
+        {error&&<div style={{background:"#FFF0F0",border:"1px solid rgba(232,0,12,0.2)",borderRadius:10,padding:"10px 14px",marginBottom:14,color:CL.accent,fontSize:13}}>⚠️ {error}</div>}
+        {TEST_MODE&&<div style={{background:"#FFF9E6",borderRadius:10,padding:"8px 14px",marginBottom:14,color:"#B8860B",fontSize:12}}>🧪 Mode test — code fixe : <strong>123456</strong></div>}
+        <ClientBtn onClick={()=>sendOTP(authForm.tel)} disabled={authForm.tel.replace(/\s/g,"").length<9} loading={saving}>
+          Recevoir mon code →
+        </ClientBtn>
+      </div>
+    </ClientPageShell>
+  );
+
+  // ── Vérification OTP (client existant) ───────────────────
+  if(authStep==="otp_verify") return(
+    <ClientPageShell onBack={()=>{setAuthStep("otp_phone");setError("");setAuthOTP(["","","","","",""]);}} backLabel="Modifier le numéro">
+      <div style={{padding:"32px 20px",textAlign:"center"}}>
+        <div style={{fontSize:44,marginBottom:12}}>💬</div>
+        <div style={{color:CL.text,fontSize:26,fontWeight:900,marginBottom:6,letterSpacing:-0.5}}>Code envoyé !</div>
+        <div style={{color:CL.muted,fontSize:14,marginBottom:6}}>Code envoyé au <strong style={{color:CL.text}}>{indicatif} {authForm.tel}</strong></div>
+        {clientData?.prenom&&<div style={{color:"#22C55E",fontSize:14,fontWeight:700,marginBottom:24}}>Bonjour {clientData.prenom} 👋</div>}
+        <div style={{display:"flex",gap:10,justifyContent:"center",marginBottom:28}}>
+          {authOTP.map((d,i)=>(
+            <input key={i} ref={el=>otpRefs.current[i]=el} value={d}
+              onChange={e=>{const v=e.target.value.replace(/\D/g,"").slice(-1);const nc=[...authOTP];nc[i]=v;setAuthOTP(nc);if(v&&i<5)otpRefs.current[i+1]?.focus();}}
+              onKeyDown={e=>{if(e.key==="Backspace"&&!d&&i>0){otpRefs.current[i-1]?.focus();const nc=[...authOTP];nc[i-1]="";setAuthOTP(nc);}}}
+              maxLength={1} type="number"
+              style={{width:48,height:58,borderRadius:14,textAlign:"center",fontSize:24,fontWeight:700,background:"#FFFFFF",border:`2px solid ${d?CL.accent:"#E8E8E8"}`,color:CL.text,outline:"none",fontFamily:"monospace",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}/>
+          ))}
+        </div>
+        {error&&<div style={{background:"#FFF0F0",borderRadius:10,padding:"10px 14px",marginBottom:14,color:CL.accent,fontSize:13}}>⚠️ {error}</div>}
+        <ClientBtn onClick={verifyOTP} disabled={authOTP.join("").length<6} loading={saving}>Se connecter ✓</ClientBtn>
+        <div style={{marginTop:16,color:CL.muted,fontSize:13}}>Pas reçu ? <span style={{color:CL.accent,cursor:"pointer",fontWeight:600}} onClick={()=>sendOTP(authForm.tel)}>Renvoyer</span></div>
+      </div>
+    </ClientPageShell>
+  );
+
+  // ── Inscription nouveau client (après OTP phone) ──────────
+  if(authStep==="register") return(
+    <ClientPageShell onBack={()=>{setAuthStep("otp_phone");setError("");setAuthOTP(["","","","","",""]);}} backLabel="Retour">
+      <div style={{padding:"16px 20px"}}>
+        <div style={{color:CL.text,fontSize:22,fontWeight:900,marginBottom:2,letterSpacing:-0.5}}>Bienvenue sur IOK !</div>
+        <div style={{color:CL.muted,fontSize:13,marginBottom:20}}>Quelques infos pour finaliser votre compte</div>
+
+        {/* Code OTP */}
+        <div style={{marginBottom:16}}>
+          <div style={{color:CL.text,fontSize:13,fontWeight:700,marginBottom:8}}>
+            Code reçu par SMS <span style={{color:CL.accent}}>*</span>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+            {authOTP.map((d,i)=>(
+              <input key={i} ref={el=>otpRefs.current[i]=el} value={d}
+                onChange={e=>{const v=e.target.value.replace(/\D/g,"").slice(-1);const nc=[...authOTP];nc[i]=v;setAuthOTP(nc);if(v&&i<5)otpRefs.current[i+1]?.focus();}}
+                onKeyDown={e=>{if(e.key==="Backspace"&&!d&&i>0){otpRefs.current[i-1]?.focus();const nc=[...authOTP];nc[i-1]="";setAuthOTP(nc);}}}
+                maxLength={1} type="number"
+                style={{width:44,height:52,borderRadius:12,textAlign:"center",fontSize:20,fontWeight:700,background:"#FFFFFF",border:`2px solid ${d?CL.accent:"#E8E8E8"}`,color:CL.text,outline:"none",fontFamily:"monospace",boxShadow:"0 2px 6px rgba(0,0,0,0.06)"}}/>
+            ))}
+          </div>
+          {TEST_MODE&&<div style={{color:"#B8860B",fontSize:11,textAlign:"center",marginTop:6}}>🧪 Code test : 123456</div>}
+        </div>
+
+        {/* Infos obligatoires */}
+        <ClientFInput label="Prénom" value={authForm.prenom} onChange={v=>setAuthForm(p=>({...p,prenom:v}))} placeholder="Jean" required={true}/>
+
+        {/* Infos optionnelles */}
+        <div style={{background:"#F8F8F8",borderRadius:14,padding:14,marginBottom:16}}>
+          <div style={{color:CL.muted,fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Optionnel — Pour recevoir des offres</div>
+          <div style={{color:CL.muted,fontSize:11,marginBottom:12,lineHeight:1.5}}>
+            En renseignant ces champs, vous acceptez de recevoir des offres personnalisées IOK.
+          </div>
+          <ClientFInput label="Nom de famille" value={authForm.nom||""} onChange={v=>setAuthForm(p=>({...p,nom:v}))} placeholder="Dupont (optionnel)"/>
+          <ClientFInput label="Email" type="email" value={authForm.email||""} onChange={v=>setAuthForm(p=>({...p,email:v}))} placeholder="jean@email.com (optionnel)"/>
+        </div>
+
+        {/* Consentements RGPD */}
+        <div style={{background:"#F0F6FF",borderRadius:14,padding:14,marginBottom:16}}>
+          <div style={{color:CL.text,fontSize:12,fontWeight:700,marginBottom:12}}>🔒 Vos données personnelles</div>
+          <div onClick={()=>setConsentCGV(v=>!v)} style={{display:"flex",gap:10,alignItems:"flex-start",marginBottom:10,cursor:"pointer"}}>
+            <div style={{width:22,height:22,borderRadius:6,border:`2px solid ${consentCGV?CL.accent:"#D0D0D0"}`,background:consentCGV?CL.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
+              {consentCGV&&<span style={{color:"white",fontSize:13,lineHeight:1}}>✓</span>}
+            </div>
+            <div style={{fontSize:12,color:CL.muted,lineHeight:1.5}}>
+              J'accepte les <span style={{color:CL.accent}}>CGU</span> et la <span style={{color:CL.accent}}>Politique de confidentialité</span> d'IOK. <span style={{color:CL.accent}}>*</span>
+              <div style={{color:"#BDBDBD",fontSize:11,marginTop:3}}>Données : prénom, téléphone. Usage : gestion des réservations uniquement.</div>
+            </div>
+          </div>
+          <div onClick={()=>setConsentMarketing(v=>!v)} style={{display:"flex",gap:10,alignItems:"flex-start",cursor:"pointer"}}>
+            <div style={{width:22,height:22,borderRadius:6,border:`2px solid ${consentMarketing?CL.accent:"#D0D0D0"}`,background:consentMarketing?CL.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
+              {consentMarketing&&<span style={{color:"white",fontSize:13,lineHeight:1}}>✓</span>}
+            </div>
+            <div style={{fontSize:12,color:CL.muted,lineHeight:1.5}}>
+              J'accepte de recevoir des offres personnalisées par email/SMS. <span style={{color:"#BDBDBD"}}>(optionnel)</span>
+            </div>
+          </div>
+        </div>
+
+        {error&&<div style={{background:"#FFF0F0",borderRadius:10,padding:"10px 14px",marginBottom:14,color:CL.accent,fontSize:13}}>⚠️ {error}</div>}
+        <ClientBtn onClick={registerClient} disabled={!authForm.prenom||authOTP.join("").length<6||!consentCGV} loading={saving}>
+          Créer mon compte →
+        </ClientBtn>
+        <div style={{color:CL.muted,fontSize:11,textAlign:"center",marginTop:10}}>
+          Vous pouvez supprimer votre compte à tout moment depuis les paramètres.
+        </div>
+      </div>
+    </ClientPageShell>
+  );
+
+  // ── Formulaire réservation (invité ou connecté) ───────────
+  return(
+    <ClientPageShell
+      onBack={step==="sms"?()=>setStep("form"):onBack}
+      backLabel={step==="sms"?"Modifier mes infos":"Retour"}
+      stickyHeader={false}
+      topSlot={
+        <div>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginTop:6,background:CL.accentSoft,borderRadius:12,padding:"10px 14px"}}>
+            <span style={{fontSize:22}}>{restaurant.image_emoji||"🍽️"}</span>
+            <div>
+              <div style={{color:CL.text,fontWeight:800,fontSize:15}}>{restaurant.nom}</div>
+              <div style={{color:CL.muted,fontSize:12}}>{(restaurant.cuisines||[]).join(", ")} · {restaurant.adresse}</div>
+            </div>
+          </div>
+          {clientData&&(
+            <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,background:"#F0FFF4",borderRadius:10,padding:"6px 12px"}}>
+              <span style={{color:"#22C55E",fontSize:13}}>✓</span>
+              <span style={{color:"#22C55E",fontSize:12,fontWeight:700}}>Connecté : {clientData.prenom}</span>
+              <FiabiliteBadge statut={clientData.fiabilite_statut||"nouveau"} small={true}/>
+            </div>
+          )}
+          {TEST_MODE&&!clientData&&(
+            <div style={{marginTop:6,background:"#FFF9E6",borderRadius:8,padding:"5px 10px",fontSize:11,color:"#B8860B"}}>
+              🧪 Mode test — connexion optionnelle
+            </div>
+          )}
+        </div>
+      }
+    >
+      <div style={{padding:"16px 20px"}}>
+        {step==="form"&&<>
+          <div style={{color:CL.text,fontSize:22,fontWeight:900,marginBottom:4,letterSpacing:-0.5}}>Vos coordonnées</div>
+          <div style={{color:CL.muted,fontSize:14,marginBottom:20}}>Pour confirmer votre réservation par SMS</div>
+          <ClientFInput label="Prénom" value={form.prenom} onChange={v=>setForm(p=>({...p,prenom:v}))} placeholder="Jean" required={true} disabled={!!clientData}/>
+
+          <TelInput label="Téléphone mobile" value={form.tel} onChange={v=>setForm(p=>({...p,tel:v}))} indicatif={indicatif} onIndicatifChange={setIndicatif} required={true} disabled={!!clientData}/>
+
+          <div style={{background:"#F8F8F8",borderRadius:14,padding:14,marginBottom:14}}>
+            <div style={{color:CL.muted,fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Optionnel</div>
+            <div style={{color:CL.muted,fontSize:12,marginBottom:12,lineHeight:1.5}}>En renseignant ces champs, vous acceptez de recevoir des offres personnalisées IOK.</div>
+            <ClientFInput label="Nom de famille" value={form.nom} onChange={v=>setForm(p=>({...p,nom:v}))} placeholder="Dupont (optionnel)" disabled={!!clientData}/>
+            <ClientFInput label="Email" type="email" value={form.email} onChange={v=>setForm(p=>({...p,email:v}))} placeholder="jean@email.com (optionnel)" disabled={!!clientData}/>
+          </div>
+
+          {/* Sélection type de table */}
+          <div style={{marginBottom:20}}>
+            <div style={{color:CL.text,fontSize:13,fontWeight:700,marginBottom:10}}>Type de table <span style={{color:CL.accent}}>*</span></div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {(restaurant.nb_tables_2||0)>0&&(
+                <button onClick={()=>setForm(p=>({...p,tableType:"2",persons:2}))}
+                  style={{padding:"16px",borderRadius:14,border:`2px solid ${form.tableType==="2"?CL.accent:"#E8E8E8"}`,background:form.tableType==="2"?CL.accentSoft:"#FFFFFF",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"space-between",boxShadow:"0 1px 4px rgba(0,0,0,0.06)",transition:"all 0.15s"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{width:44,height:44,borderRadius:12,background:form.tableType==="2"?CL.accentSoft:"#F8F8F8",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>👥</div>
+                    <div style={{textAlign:"left"}}>
+                      <div style={{fontWeight:700,fontSize:15,color:CL.text}}>Table pour 2 personnes</div>
+                      <div style={{fontSize:12,color:CL.muted,marginTop:2}}>{restaurant.nb_tables_2} table{restaurant.nb_tables_2>1?"s":""} disponible{restaurant.nb_tables_2>1?"s":""}</div>
+                    </div>
+                  </div>
+                  <div style={{width:22,height:22,borderRadius:"50%",background:form.tableType==="2"?CL.accent:"#E8E8E8",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    {form.tableType==="2"&&<span style={{color:"white",fontSize:12,lineHeight:1}}>✓</span>}
+                  </div>
+                </button>
+              )}
+              {(restaurant.nb_tables_4||0)>0&&(
+                <button onClick={()=>setForm(p=>({...p,tableType:"4",persons:4}))}
+                  style={{padding:"16px",borderRadius:14,border:`2px solid ${form.tableType==="4"?CL.accent:"#E8E8E8"}`,background:form.tableType==="4"?CL.accentSoft:"#FFFFFF",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"space-between",boxShadow:"0 1px 4px rgba(0,0,0,0.06)",transition:"all 0.15s"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{width:44,height:44,borderRadius:12,background:form.tableType==="4"?CL.accentSoft:"#F8F8F8",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>👨‍👩‍👧‍👦</div>
+                    <div style={{textAlign:"left"}}>
+                      <div style={{fontWeight:700,fontSize:15,color:CL.text}}>Table pour 4 personnes</div>
+                      <div style={{fontSize:12,color:CL.muted,marginTop:2}}>{restaurant.nb_tables_4} table{restaurant.nb_tables_4>1?"s":""} disponible{restaurant.nb_tables_4>1?"s":""}</div>
+                    </div>
+                  </div>
+                  <div style={{width:22,height:22,borderRadius:"50%",background:form.tableType==="4"?CL.accent:"#E8E8E8",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    {form.tableType==="4"&&<span style={{color:"white",fontSize:12,lineHeight:1}}>✓</span>}
+                  </div>
+                </button>
+              )}
+              {(restaurant.nb_tables_2||0)===0&&(restaurant.nb_tables_4||0)===0&&(
+                <div style={{background:"#FFF0F0",borderRadius:14,padding:"16px",color:CL.accent,fontSize:14,fontWeight:600}}>
+                  ⚠️ Plus aucune table disponible
+                </div>
+              )}
+            </div>
+          </div>
+          <ClientBtn onClick={sendSMS} disabled={!valid} loading={sending}>Valider et recevoir mon code SMS</ClientBtn>
+        </>}
+
+        {step==="sms"&&<>
+          <div style={{color:CL.text,fontSize:22,fontWeight:900,marginBottom:4,letterSpacing:-0.5}}>Code SMS</div>
+          <div style={{color:CL.muted,fontSize:14,marginBottom:8}}>Code envoyé au {indicatif} {form.tel}</div>
+          {TEST_MODE&&<div style={{background:"#FFF9E6",borderRadius:10,padding:"8px 14px",marginBottom:20,fontSize:12,color:"#B8860B"}}>
+            🧪 Code démo : <strong>12345</strong>
+          </div>}
+          <div style={{display:"flex",gap:10,justifyContent:"center",marginBottom:28}}>
+            {code.map((d,i)=>(
+              <input key={i} ref={el=>inputsRef.current[i]=el} value={d}
+                onChange={e=>handleDigit(i,e.target.value)}
+                onKeyDown={e=>{if(e.key==="Backspace"&&!d&&i>0){inputsRef.current[i-1]?.focus();const nc=[...code];nc[i-1]="";setCode(nc);}}}
+                maxLength={1} type="number"
+                style={{width:52,height:62,borderRadius:14,textAlign:"center",fontSize:26,fontWeight:700,background:"#FFFFFF",border:`2px solid ${d?CL.accent:"#E8E8E8"}`,color:CL.text,outline:"none",fontFamily:"monospace",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}/>
+            ))}
+          </div>
+          {error&&<div style={{background:"#FFF0F0",borderRadius:10,padding:"10px 14px",marginBottom:14,color:CL.accent,fontSize:13,textAlign:"center"}}>{error}</div>}
+          <ClientBtn onClick={verify} disabled={code.join("").length<5} loading={saving}>Confirmer ma réservation ✓</ClientBtn>
+          <div style={{textAlign:"center",marginTop:16,color:CL.muted,fontSize:13}}>
+            Pas reçu ? <span style={{color:CL.accent,cursor:"pointer",fontWeight:600}} onClick={()=>setStep("form")}>Renvoyer</span>
+          </div>
+        </>}
+      </div>
+    </ClientPageShell>
+  );
+}
+
+
+/* ══ ROOT ════════════════════════════════════════════ */
+function App(){
+  const [screen,setScreen]=useState("splash");
+  const [bookingResto,setBookingResto]=useState(null);
+  const [restoUser,setRestoUser]=useState(null);
+  const go=s=>setScreen(s);
+
+  // Vérifie si déjà connecté au chargement
+  useEffect(()=>{
+    db().auth.getSession().then(({data})=>{
+      if(data?.session) {
+        // Session active — on pourrait auto-connecter ici
+      }
+    });
+  },[]);
+
+  return(
+    <div style={{maxWidth:430,margin:"0 auto"}}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      {screen==="splash"&&<Splash onStart={t=>go(t==="client"?"client-search":t==="mon-compte"?"mon-compte":"resto-login")}/>}
+      {screen==="mon-compte"&&<ClientDashboard onBack={()=>go("splash")} onHome={()=>go("splash")}/>}
+      {screen==="client-search"&&<ClientSearch onBack={()=>go("splash")} onHome={()=>go("splash")} onBook={r=>{setBookingResto(r);go("client-book");}}/>}
+      {screen==="client-book"&&bookingResto&&<ClientBookingAuth restaurant={bookingResto} onBack={()=>go("client-search")} onHome={()=>go("splash")} onSuccess={()=>{setTimeout(()=>go("client-search"),2500);}}/>}
+      {screen==="resto-login"&&<RestaurateurLogin onBack={()=>go("splash")} onHome={()=>go("splash")} onSuccess={u=>{setRestoUser(u);go("resto-app");}} onRegister={()=>go("resto-register")}/>}
+      {screen==="resto-register"&&<RestaurateurAuth onSuccess={u=>{setRestoUser(u);go("resto-app");}} onBackToLogin={()=>go("resto-login")} onHome={()=>go("splash")}/>}
+      {screen==="resto-app"&&restoUser&&<RestaurateurApp user={restoUser} onHome={()=>go("splash")} onLogout={async()=>{await db().auth.signOut();setRestoUser(null);go("resto-login");}}/>}
+    </div>
+  );
+}
+
+// Attend que IOK_DB soit prêt avant de monter React
+function mountApp() {
+  if (!window.IOK_DB) {
+    console.error('IOK_DB non disponible - vérifiez votre SUPABASE_URL et SUPABASE_KEY');
+    // Tente de l'initialiser maintenant
+    try {
+      if (window.supabase && window.supabase.createClient) {
+        window.IOK_DB = window.supabase.createClient(
+          window.SUPABASE_URL || "REMPLACE_PAR_TON_URL",
+          window.SUPABASE_KEY || "REMPLACE_PAR_TA_CLE"
+        );
+        console.log('IOK_DB initialisé en fallback');
+      }
+    } catch(e) {
+      console.error('Impossible d initialiser Supabase:', e);
+    }
+  }
+  const root=ReactDOM.createRoot(document.getElementById("root"));
+  root.render(<App/>);
+  const loader=document.getElementById("splash-loader");
+  loader.style.transition="opacity 0.5s";
+  loader.style.opacity="0";
+  setTimeout(()=>loader.style.display="none",600);
+}
+
+// Lance immédiatement - IOK_DB doit déjà être init car Supabase charge avant Babel
+loadParams().then(()=>mountApp());
+  </script>
+</body>
+</html>
